@@ -83,16 +83,16 @@ let s:Cards.CONTINUE = 1
 let s:Cards.NORMAL_MODE = 0
 let s:Cards.WHOLE_MODE = 1
 function! s:Cards(decknames) "{{{
-  let _ = {'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': {}, 'orders': [], 'ftimesaves': [], 'srcidxes': {}}
-  let [_.entries, _.orders, _.ftimesaves, _.srcidxes] = s:_get_entries_and_orders(a:decknames)
+  let self = {'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': {}, 'orders': [], 'ftimesaves': [], 'srcidxes': {}}
+  let [self.entries, self.orders, self.ftimesaves, self.srcidxes] = s:_get_entries_and_orders(a:decknames)
   if s:should_shuffle
-    call s:_shuffle(_.orders)
+    call s:_shuffle(self.orders)
   end
-  let _.totallen = len(_.orders)
-  let _.deductedlen = len(filter(copy(_.orders), '!v:val[2]'))
-  let _.mode = s:Cards.NORMAL_MODE
-  call extend(_, s:Cards, 'keep')
-  return _
+  let self.totallen = len(self.orders)
+  let self.deductedlen = len(filter(copy(self.orders), '!v:val[2]'))
+  let self.mode = s:Cards.NORMAL_MODE
+  call extend(self, s:Cards, 'keep')
+  return self
 endfunction
 "}}}
 function! s:Cards._get_normal_crrcount() "{{{
@@ -146,6 +146,18 @@ function! s:Cards._rebuild() "{{{
   if self.ask_action()
     let self.j += 1
   end
+endfunction
+"}}}
+function! s:Cards._act_help() "{{{
+  redraw!
+  echoh MoreMsg
+  for [key, desc] in [['j', 'forward'], ['k', 'back'], ['n', 'go to next entry'], ['p', 'go to previous entry'], ['i', 'ignore/unignore this entry'], ['I', 'toggle ignore mode'], ['e', 'edit deck source file'], ['s', 'suspend frashcards'], ['q', 'quit frashcards'], ['?', 'show helps']]
+    echo key. "\t". desc
+  endfor
+  echoh NONE
+  call getchar()
+  redraw!
+  call self._rebuild()
 endfunction
 "}}}
 function! s:Cards._act_k() "{{{
@@ -339,13 +351,15 @@ function! s:Cards.ask_action() "{{{
       call self._act_ignore() | return
     elseif act==#'m'
       call self._act_mark() | return
+    elseif act==#'?'
+      call self._act_help() | return
     end
   endwhile
 endfunction
 "}}}
 
 
-"--------------------------------------
+"------------------
 let s:CharCounter = {'count': 0}
 function! s:CharCounter.reset() "{{{
   let self.count = 0
