@@ -2,9 +2,7 @@ if exists('s:save_cpo')| finish| endif
 let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
-let g:flashcards#settings_dir = '~/.cache/vim/flashcards'
-
-let g:flashcards#settings_dir = get(g:, 'flashcards#settings_dir', '~/.cache/flashcards')
+let g:flashcards#settings_dir = get(g:, 'flashcards#settings_dir', '~/flashcards.vim')
 let g:flashcards#decks_dir = get(g:, 'flashcards#decks_dir', g:flashcards#settings_dir. '/decks')
 
 let s:DIALOGUE = 'j, k, n, p, m, i, I, e, s, q, ? '
@@ -40,30 +38,73 @@ function! s:_echoparse(str) "{{{
   return substitute(a:str, '\\n', "\n  ", 'g')
 endfunction
 "}}}
-function! s:_get_entries_and_orders(decknames) "{{{
-  let [entries, orders, ftimesaves, srcidxes] = [{}, [], {}, {}]
-  for deckname in a:decknames
-    let path = expand(g:flashcards#decks_dir). '/'. deckname
-    if !filereadable(path)
-      echoh ErrorMsg| echo 'flashcards: such name deck is not existed.'| echoh NONE
-      continue
-    end
-    let srcidxconts = []
-    let entries[deckname] = filter(readfile(path), 's:_filter_src(v:val, v:key, srcidxconts)')
-    let srcidxes[deckname] = srcidxconts
-    call extend(orders, map(copy(entries[deckname]), '[deckname, v:key, s:_get_meta_of(v:val)=~"i"]'))
-    let ftimesaves[deckname] = getftime(path)
-  endfor
-  return [entries, orders, ftimesaves, srcidxes]
+function! s:_read_deck(deckname) "{{{
+  let path = expand(g:flashcards#decks_dir). '/'. a:deckname
+  if filereadable(path)
+    return readfile(path)
+  end
+  echoh ErrorMsg| echo 'flashcards: such name deck is not existed.'| echoh NONE
+  throw 'flashcards: unreadable'
 endfunction
 "}}}
-function! s:_get_meta_of(entry) "{{{
-  return matchstr(a:entry, '\t#\zs[^[:tab:]]\{-}$')
+function! s:_get_entries_and_orders(decknames) "{{{
+  let [entries, orders, srcidxes] = [{}, [], {}]
+  for deckname in a:decknames
+    try
+      let entries[deckname] = s:_read_deck(deckname)
+    catch /flashcards: unreadable/
+      continue
+    endtry
+    call extend(orders, map(copy(entries[deckname]), '[deckname, v:key, s:_should_ignore(v:val)]'))
+  endfor
+  return [entries, orders, srcidxes]
+endfunction
+"}}}
+function! s:_should_ignore(entrystr) "{{{
+  return a:entrystr =~ '^\s*\%(#\|$\)' ? -1 : s:_get_meta_of(a:entrystr)=~'i'
+endfunction
+"}}}
+function! s:_get_meta_of(entrystr) "{{{
+  return matchstr(a:entrystr, '\t#\zs[^[:tab:]]\{-}$')
 endfunction
 "}}}
 function! s:_get_wnr_in_crrtabpage(bname) "{{{
   let bnr = bufnr(a:bname)
   return index(tabpagebuflist(), bnr)+1
+endfunction
+"}}}
+
+function! s:_modify_orders_for_continue(difftracks, orders, newlines, deckname, oldlen) "{{{
+  let [offsets, modifier] = flashcards#_get_renewentries_offsets_and_modifier(a:difftracks, a:orders, a:deckname)
+  call modifier.set_essential(a:newlines, a:oldlen)
+  while modifier.ordersi < modifier.orderslen
+    call modifier.set_oldi()
+    call modifier.resolve_adds()
+    if !modifier.resolve_dels()
+      call modifier.resolve_offsets(offsets)
+      let modifier.ordersi += 1
+    end
+    call modifier.lastadds()
+  endwhile
+  return a:orders
+endfunction
+"}}}
+function! flashcards#_get_renewentries_offsets_and_modifier(difftracks, orders, deckname) "{{{
+  let [offset, save_oldi, offsets, modifier] = [0, -1, [], s:newModifier(a:orders, a:deckname)]
+  for [v, oldi, newi] in a:difftracks
+    if v==0
+      call extend(offsets, repeat([offset], oldi - save_oldi))
+      let save_oldi = oldi
+      continue
+    end
+    if oldi!=-1
+      let orderidx = match(a:orders, '['''.a:deckname.''', '.oldi.',')
+      if orderidx==-1| throw 'flashcards: order is not found: '.a:deckname.' '.oldi | end
+    end
+    call modifier.reserve(v, oldi, newi)
+    let offset += v
+  endfor
+  return [s:newOffsets(offsets), modifier]
 endfunction
 "}}}
 "------------------
@@ -78,25 +119,50 @@ endfunction
 
 
 "--------------------------------------
-let s:Cards = {'i': 0, 'j': 0}
-let s:Cards.CONTINUE = 1
+let s:Cards = {}
 let s:Cards.NORMAL_MODE = 0
 let s:Cards.WHOLE_MODE = 1
-function! s:Cards(decknames) "{{{
-  let self = {'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': {}, 'orders': [], 'ftimesaves': [], 'srcidxes': {}}
-  let [self.entries, self.orders, self.ftimesaves, self.srcidxes] = s:_get_entries_and_orders(a:decknames)
+function! s:newCards(decknames) "{{{
+  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': {}, 'orders': [],  'srcidxes': {}}
+  let [self.entries, self.orders, self.srcidxes] = s:_get_entries_and_orders(a:decknames)
   if s:should_shuffle
     call s:_shuffle(self.orders)
   end
   let self.totallen = len(self.orders)
-  let self.deductedlen = len(filter(copy(self.orders), '!v:val[2]'))
+  let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
+  let self.unignoredlen = len(tmp)
+  let self.ignoredlen = len(filter(tmp, '!v:val[2]'))
   let self.mode = s:Cards.NORMAL_MODE
   call extend(self, s:Cards, 'keep')
   return self
 endfunction
 "}}}
+function! s:newCards_continue(decknames, entries, orders, i, mode) "{{{
+  let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': a:entries, 'orders': a:orders,  'srcidxes': {}}
+  let self.totallen = len(self.orders)
+  let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
+  let self.unignoredlen = len(tmp)
+  let self.ignoredlen = len(filter(tmp, '!v:val[2]'))
+  let self.mode = a:mode
+  call extend(self, s:Cards, 'keep')
+  call self.nexti(0)
+  if self.i >= self.totallen
+    let self.i -= 1
+    call self.nexti(-1)
+  end
+  return self
+endfunction
+"}}}
 function! s:Cards._get_normal_crrcount() "{{{
   return len(filter(self.orders[:self.i], '!v:val[2]'))
+endfunction
+"}}}
+function! s:Cards._get_unignored_crrcount() "{{{
+  return len(filter(self.orders[:self.i], 'v:val[2]!=-1'))
+endfunction
+"}}}
+function! s:Cards._get_crrcount() "{{{
+  return self.mode==self.NORMAL_MODE ? self._get_normal_crrcount() : self._get_unignored_crrcount()
 endfunction
 "}}}
 function! s:Cards._get_jlen() "{{{
@@ -107,24 +173,18 @@ endfunction
 "}}}
 function! s:Cards._write_modified_entry(newentry) "{{{
   let order = self.orders[self.i]
-  let [deckname, orderi] = [order[0], order[1]]
+  let [deckname, oldi] = [order[0], order[1]]
   let srcpath = expand(g:flashcards#decks_dir). '/'. deckname
   if !filereadable(srcpath)
     return 1
   end
-  let srcidx = self.srcidxes[deckname][orderi]
-  let lines = readfile(srcpath)
-  if getftime(srcpath)==get(self.ftimesaves, deckname, 0)
-    let lines[srcidx] = a:newentry
-    call writefile(lines, srcpath)
-    let self.ftimesaves[deckname] = getftime(srcpath)
-  else
-    let idx = match(lines, '^'.self.crrentry.'\%(\t#[^[:tab:]]*\)\?$')
-    if idx==-1| return 1| end
-    let lines[idx] = a:newentry
-    call writefile(lines, srcpath)
-  end
-  let self.entries[deckname][orderi] = a:newentry
+  let newlines = readfile(srcpath)
+  let diff = flashcards#get_diff(self.entries[deckname], newlines)
+  let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, deckname)[0]
+  let newlines[offsets.get_newi(oldi)] = a:newentry
+  call writefile(newlines, srcpath)
+
+  let self.entries[deckname][oldi] = a:newentry
   let save_wnr = winnr()
   let wnr = s:_get_wnr_in_crrtabpage(srcpath)
   if !wnr
@@ -197,9 +257,8 @@ function! s:Cards._act_suspend() "{{{
   if !isdirectory(suspenddir)
     call mkdir(suspenddir, 'p')
   end
-  call writefile(map(copy(self.orders), 'string(v:val)'), suspenddir.'/entries')
-  let params = {'i': self.i, 'j': self.j, 'name': self.name, 'decknames': self.decknames, 'totallen': self.totallen, 'deductedlen': self.deductedlen, 'mode': self.mode, 'time': strftime('%Y-%m-%d %T')}
-  call writefile([string(params)], suspenddir.'/params')
+  let params = {'i': self.i, 'decknames': self.decknames, 'mode': self.mode, 'orders': self.orders, 'entries': self.entries}
+  call writefile([string(params)], suspenddir.'/data')
 endfunction
 "}}}
 function! s:Cards._act_ignore() "{{{
@@ -209,10 +268,10 @@ function! s:Cards._act_ignore() "{{{
   if self._write_modified_entry(newentry)
     return
   end
-  let save_crrcount = self.mode==self.NORMAL_MODE ? self._get_normal_crrcount() : self.i+1
+  let save_crrcount = self._get_crrcount()
   let self.crrmeta = meta
   let self.orders[self.i][2] = !is_ignored
-  let self.deductedlen = len(filter(copy(self.orders), '!v:val[2]'))
+  let self.ignoredlen = len(filter(copy(self.orders), '!v:val[2]'))
   if self.mode==self.NORMAL_MODE
     let self.j = 0
     let save_i = self.i
@@ -238,7 +297,7 @@ function! s:Cards._act_mark() "{{{
   end
   let self.crrmeta = meta
   redraw!
-  let crrcount = self.mode==self.NORMAL_MODE ? self._get_normal_crrcount() : self.i+1
+  let crrcount = self._get_crrcount()
   echoh Question | echo '#'. crrcount 'entry is' (is_marked ? 'unmarked.' : 'marked.') | echoh NONE
   call self._rebuild()
 endfunction
@@ -251,7 +310,7 @@ endfunction
 "}}}
 function! s:Cards._act_edit() "{{{
   let order = self.orders[self.i]
-  let [deckname, orderi] = [order[0], order[1]]
+  let [deckname, oldi] = [order[0], order[1]]
   let bname = expand(g:flashcards#decks_dir). '/'. deckname
   let wnr = s:_get_wnr_in_crrtabpage(bname)
   if wnr
@@ -259,11 +318,11 @@ function! s:Cards._act_edit() "{{{
   else
     exe 'tabnew' bname
   end
-  let srcidx = self.srcidxes[deckname][orderi]
-  call cursor(srcidx+1, 1)
-  if getline('.')!=self.crrentry
-    call search('^'.self.crrentry, 'cw')
-  end
+  let newlines = getline(1, '$')
+  let diff = flashcards#get_diff(self.entries[deckname], newlines)
+  let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, deckname)[0]
+  let idx = offsets.get_newi(oldi)
+  call cursor(idx+1, 1)
 endfunction
 "}}}
 
@@ -272,7 +331,7 @@ function! s:Cards.nexti(delta) "{{{
   let delta = a:delta ? a:delta : 1
   while self.i >= 0 && self.i < self.totallen
     let order = self.orders[self.i]
-    if self.mode==self.NORMAL_MODE && order[2]
+    if order[2]==-1 || self.mode==self.NORMAL_MODE && order[2]
       let self.i += delta | continue
     end
     let entry = get(self.entries[order[0]], order[1], '')
@@ -285,19 +344,6 @@ function! s:Cards.nexti(delta) "{{{
   endwhile
 endfunction
 "}}}
-function! s:Cards.init_entry() "{{{
-  let order = self.orders[self.i]
-  if self.mode==self.NORMAL_MODE && order[2]
-    return 1
-  end
-  let entry = get(self.entries[order[0]], order[1], '')
-  if entry == ''
-    return 1
-  end
-  let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
-  let self.crrmeta = s:_get_meta_of(entry)
-endfunction
-"}}}
 function! s:Cards.show_status() "{{{
   echo ''
   if self.crrmeta=~'i'
@@ -308,9 +354,9 @@ function! s:Cards.show_status() "{{{
   end
   echoh NONE | echon ' '
   if self.mode==self.NORMAL_MODE
-    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_normal_crrcount(), self.deductedlen)
+    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_normal_crrcount(), self.ignoredlen)
   else
-    echoh Title | echon printf("%s ([I]: %d/%d) ", self.name, self.i+1, self.totallen)
+    echoh Title | echon printf("%s ([I]: %d/%d) ", self.name, self._get_unignored_crrcount(), self.unignoredlen)
   end
   echoh MoreMsg | echon s:DIALOGUE | echoh NONE
   echo '> '. s:_echoparse(matchstr(self.crrentry, '^.\{-}\%(\t\|$\)'))
@@ -331,9 +377,9 @@ function! s:Cards.ask_action() "{{{
       return 1
     elseif act==#'k'
       call self._act_k() | return
-    elseif act=~#'n\|J'
+    elseif act=~#"\<C-n>\\|n\\|J"
       call self._act_n() | return
-    elseif act=~#'p\|K'
+    elseif act=~#"\<C-p>\\|p\\|K"
       call self._act_p() | return
     elseif act==#'q' || act=="\<C-c>"
       redraw! | throw 'flashcards: finish'
@@ -367,6 +413,187 @@ endfunction
 "}}}
 function! s:CharCounter.inc() "{{{
   let self.count += 1
+endfunction
+"}}}
+
+
+"------------------
+let s:Offsets = {}
+function! s:newOffsets(offsetslist) "{{{
+  let self = copy(s:Offsets)
+  let self.offsets = a:offsetslist
+  return self
+endfunction
+"}}}
+function! s:Offsets.get_newi(oldi) "{{{
+  return a:oldi + self.offsets[a:oldi]
+endfunction
+"}}}
+
+
+"------------------
+let s:Modifier = {'adds': {}, 'dels': {}, 'ordersi': 0}
+function! s:newModifier(orders, deckname) "{{{
+  let modifier = deepcopy(s:Modifier)
+  let modifier.orders = a:orders
+  let modifier.orderslen = len(a:orders)
+  let modifier.deckname = a:deckname
+  return modifier
+endfunction
+"}}}
+function! s:Modifier.reserve(v, oldi, newi) "{{{
+  if a:v==1
+    let self.adds[a:oldi+1] = add(get(self.adds, a:oldi+1, []), a:newi)
+  else
+    let self.dels[a:oldi] = ''
+  end
+endfunction
+"}}}
+function! s:Modifier.set_essential(newlines, oldlen) "{{{
+  let self.newlines = a:newlines
+  let self.oldlen = a:oldlen
+endfunction
+"}}}
+function! s:Modifier.set_oldi() "{{{
+  let self.oldi = self.orders[self.ordersi][1]
+endfunction
+"}}}
+function! s:Modifier.resolve_adds() "{{{
+  if !has_key(self.adds, self.oldi)
+    return
+  end
+  let newis = self.adds[self.oldi]
+  call extend(self.orders, map(newis, '[self.deckname, v:val, s:_should_ignore(self.newlines[v:val])]'), self.ordersi)
+  let adjust = len(newis)
+  let self.orderslen += adjust
+  let self.ordersi += adjust
+endfunction
+"}}}
+function! s:Modifier.resolve_dels() "{{{
+  if !has_key(self.dels, self.oldi)
+    return
+  end
+  unlet self.orders[self.ordersi]
+  let self.orderslen -= 1
+  return 1
+endfunction
+"}}}
+function! s:Modifier.resolve_offsets(offsets) "{{{
+  let newi = a:offsets.get_newi(self.oldi)
+  let self.orders[self.ordersi] = [self.deckname, newi, s:_should_ignore(self.newlines[newi])]
+endfunction
+"}}}
+function! s:Modifier.lastadds() "{{{
+  if !(self.oldi == self.oldlen-1 && has_key(self.adds, self.oldlen))
+    return
+  end
+  let newis = self.adds[self.oldlen]
+  call extend(self.orders, map(newis, '[self.deckname, v:val, s:_should_ignore(self.newlines[v:val])]'), self.ordersi)
+  let adjust = len(newis)
+  let self.orderslen += adjust
+  let self.ordersi += adjust
+endfunction
+"}}}
+
+
+"--------------------------------------
+let s:Diff = {'fp': {}}
+function! flashcards#get_diff(old, new) "{{{
+  let diff = deepcopy(s:Diff)
+  let lenold = len(a:old)
+  let lennew = len(a:new)
+  let diff.is_swapped = lenold > lennew
+  if diff.is_swapped
+    let diff.short = a:new
+    let diff.long = a:old
+    let diff.shortlen = lennew
+    let diff.longlen = lenold
+  else
+    let diff.short = a:old
+    let diff.long = a:new
+    let diff.shortlen = lenold
+    let diff.longlen = lennew
+  end
+  return diff.calc_diff()
+endfunction
+"}}}
+function! s:Diff.calc_diff() "{{{
+  let delta = self.longlen - self.shortlen
+  let self.tracker = s:newDiffTracker(delta, self.is_swapped)
+  let p = -1
+  while get(self.fp, delta, -1) != self.longlen
+    let p += 1
+    let k = -p
+    while k < delta
+      let self.fp[k] = self._snake(k)
+      let k += 1
+    endwhile
+    let k = delta + p
+    while k > delta
+      let self.fp[k] = self._snake(k)
+      let k -= 1
+    endwhile
+    let self.fp[delta] = self._snake(delta)
+  endwhile
+  return {'tracks': self.tracker.get_tracks(), 'edit_distance': delta + 2 * p}
+endfunction
+"}}}
+function! s:Diff._get_variation(y, x) "{{{
+  if self.is_swapped
+    return [x, self.short[x]]
+  end
+  return [a:y, self.long[a:y]]
+endfunction
+"}}}
+function! s:Diff._get_y(k) "{{{
+  let [old_y1, old_y2] =  [get(self.fp, a:k-1, -1)+1, get(self.fp, a:k+1, -1)]
+  if old_y1 > old_y2
+    call self.tracker.add_change(a:k, old_y1, 1)
+    return old_y1
+  else
+    call self.tracker.add_change(a:k, old_y2, -1)
+    return old_y2
+  end
+endfunction
+"}}}
+function! s:Diff._snake(k) "{{{
+  let y = self._get_y(a:k)
+  let x = y - a:k
+  while x < self.shortlen && y < self.longlen && self.short[x] ==# self.long[y]
+    let [x, y] =[x+1, y+1]
+    call self.tracker.add_equal(a:k, y)
+  endwhile
+  return y
+endfunction
+"}}}
+
+
+"------------------
+let s:DiffTracker = {}
+function! s:newDiffTracker(delta, is_swapped) "{{{
+  let self = copy(s:DiffTracker)
+  let self.tracker = {}
+  let self.delta = a:delta
+  let self.is_swapped = a:is_swapped
+  return self
+endfunction
+"}}}
+function! s:DiffTracker.add_change(k, y, v) "{{{
+  let before_k = a:k - a:v
+  let self.tracker[a:k] = has_key(self.tracker, before_k) ? deepcopy(self.tracker[before_k]) : []
+  call add(self.tracker[a:k], [a:v, a:y-a:k-1, a:y-1])
+endfunction
+"}}}
+function! s:DiffTracker.add_equal(k, y) "{{{
+  call add(self.tracker[a:k], [0, a:y-a:k-1, a:y-1])
+endfunction
+"}}}
+function! s:DiffTracker.get_tracks() "{{{
+  let tracks = self.tracker[self.delta]
+  if tracks!=[]
+    unlet tracks[0]
+  end
+  return self.is_swapped ? map(tracks, '[-v:val[0], v:val[2], v:val[1]]') : tracks
 endfunction
 "}}}
 
@@ -412,10 +639,13 @@ function! flashcards#shuffle() "{{{
 endfunction
 "}}}
 
-function! flashcards#start() "{{{
-  call flashcards#reset()
-  call flashcards#load('test.tango')
-  let cards = s:Cards(s:setteddecknames)
+function! flashcards#start(...) "{{{
+  let is_continue = a:0
+  if !is_continue
+    call flashcards#reset()
+    call flashcards#load('test.tango')
+  end
+  let cards = is_continue ? a:1 : s:newCards(s:setteddecknames)
   call cards.nexti(0)
   try
     while cards.i < cards.totallen
@@ -434,12 +664,34 @@ function! flashcards#start() "{{{
       redraw!
     endwhile
   catch /flashcards: finish/
-    return
   endtry
 endfunction
 "}}}
 
 function! flashcards#continue() "{{{
+  let suspenddir = expand(g:flashcards#settings_dir). '/suspended'
+  if !filereadable(suspenddir. '/data')
+    echo 'flashcards: suspendfile is not exist.'
+    return
+  end
+  let suspended = eval(readfile(suspenddir. '/data')[0])
+  let entries = suspended.entries
+  let orders = suspended.orders
+  let newentries = {}
+  for deckname in suspended.decknames
+    try
+      let newentries[deckname] = s:_read_deck(deckname)
+    catch /flashcards: unreadable/
+      call filter(orders, 'v:val!~# "^['''.deckname.''', "')
+      continue
+    endtry
+    let diff = flashcards#get_diff(entries[deckname], newentries[deckname])
+    if diff.edit_distance
+      let orders = s:_modify_orders_for_continue(diff.tracks, orders, newentries[deckname], deckname, len(entries[deckname]))
+    end
+  endfor
+  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.i, suspended.mode)
+  call flashcards#start(cards)
 endfunction
 "}}}
 
