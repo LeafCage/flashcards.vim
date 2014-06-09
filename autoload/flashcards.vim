@@ -74,7 +74,7 @@ function! s:_get_wnr_in_crrtabpage(bname) "{{{
 endfunction
 "}}}
 
-function! s:_modify_orders_for_continue(difftracks, orders, newlines, deckname, oldlen) "{{{
+function! s:_modify_orders_for_continue(difftracks, orders, newlines, deckname, oldlen, oldi) "{{{
   let [offsets, modifier] = flashcards#_get_renewentries_offsets_and_modifier(a:difftracks, a:orders, a:deckname)
   call modifier.set_essential(a:newlines, a:oldlen)
   while modifier.ordersi < modifier.orderslen
@@ -86,7 +86,7 @@ function! s:_modify_orders_for_continue(difftracks, orders, newlines, deckname, 
     end
     call modifier.lastadds()
   endwhile
-  return a:orders
+  return [a:orders, offsets.get_newi(a:oldi)]
 endfunction
 "}}}
 function! flashcards#_get_renewentries_offsets_and_modifier(difftracks, orders, deckname) "{{{
@@ -147,7 +147,7 @@ function! s:newCards_continue(decknames, entries, orders, i, mode) "{{{
   call extend(self, s:Cards, 'keep')
   call self.nexti(0)
   if self.i >= self.totallen
-    let self.i -= 1
+    let self.i = self.totallen-1
     call self.nexti(-1)
   end
   return self
@@ -211,7 +211,7 @@ endfunction
 function! s:Cards._act_help() "{{{
   redraw!
   echoh MoreMsg
-  for [key, desc] in [['j', 'forward'], ['k', 'back'], ['n', 'go to next entry'], ['p', 'go to previous entry'], ['i', 'ignore/unignore this entry'], ['I', 'toggle ignore mode'], ['e', 'edit deck source file'], ['s', 'suspend frashcards'], ['q', 'quit frashcards'], ['?', 'show helps']]
+  for [key, desc] in [['j', 'forward'], ['k', 'back'], ['l', 'go to next entry'], ['h', 'go to previous entry'], ['^, H', 'go to initial entry'], ['$, L', 'go to last entry'], ['i', 'ignore/unignore this entry'], ['I', 'toggle ignore mode'], ['e', 'edit deck source file'], ['s', 'suspend frashcards'], ['q', 'quit frashcards'], ['?', 'show helps']]
     echo key. "\t". desc
   endfor
   echoh NONE
@@ -220,7 +220,7 @@ function! s:Cards._act_help() "{{{
   call self._rebuild()
 endfunction
 "}}}
-function! s:Cards._act_k() "{{{
+function! s:Cards._act_back() "{{{
   redraw!
   if self.j > 0
     let self.j -= 1
@@ -236,7 +236,7 @@ function! s:Cards._act_k() "{{{
   end
 endfunction
 "}}}
-function! s:Cards._act_n() "{{{
+function! s:Cards._act_next() "{{{
   redraw!
   call self.nexti(1)
   let self.i = self.i >= self.totallen ? self.totallen-1 : self.i
@@ -244,9 +244,30 @@ function! s:Cards._act_n() "{{{
   call self._rebuild()
 endfunction
 "}}}
-function! s:Cards._act_p() "{{{
+function! s:Cards._act_prev() "{{{
   redraw!
   call self.nexti(-1)
+  let self.i = self.i < 0 ? 0 : self.i
+  let self.j = 0
+  call self._rebuild()
+endfunction
+"}}}
+function! s:Cards._act_head() "{{{
+  redraw!
+  let self.i = 0
+  call self.nexti(0)
+  let self.i = self.i >= self.totallen ? self.totallen-1 : self.i
+  let self.j = 0
+  call self._rebuild()
+endfunction
+"}}}
+function! s:Cards._act_last() "{{{
+  redraw!
+  let self.i = self.totallen-1
+  let order = self.orders[self.i]
+  if order[2]==-1 || self.mode==self.NORMAL_MODE && order[2]
+    call self.nexti(-1)
+  end
   let self.i = self.i < 0 ? 0 : self.i
   let self.j = 0
   call self._rebuild()
@@ -376,11 +397,15 @@ function! s:Cards.ask_action() "{{{
     if act==#'j' || act=="\<CR>"
       return 1
     elseif act==#'k'
-      call self._act_k() | return
-    elseif act=~#"\<C-n>\\|n\\|J"
-      call self._act_n() | return
-    elseif act=~#"\<C-p>\\|p\\|K"
-      call self._act_p() | return
+      call self._act_back() | return
+    elseif act==#"l"
+      call self._act_next() | return
+    elseif act==#"h"
+      call self._act_prev() | return
+    elseif act=~#'\^\|H'
+      call self._act_head() | return
+    elseif act=~#'\$\|L'
+      call self._act_last() | return
     elseif act==#'q' || act=="\<C-c>"
       redraw! | throw 'flashcards: finish'
     elseif act==#'s'
@@ -687,7 +712,7 @@ function! flashcards#continue() "{{{
     endtry
     let diff = flashcards#get_diff(entries[deckname], newentries[deckname])
     if diff.edit_distance
-      let orders = s:_modify_orders_for_continue(diff.tracks, orders, newentries[deckname], deckname, len(entries[deckname]))
+      let [orders, suspended.i] = s:_modify_orders_for_continue(diff.tracks, orders, newentries[deckname], deckname, len(entries[deckname]), suspended.i)
     end
   endfor
   let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.i, suspended.mode)
