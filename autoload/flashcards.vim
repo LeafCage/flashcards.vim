@@ -31,37 +31,37 @@ function! s:_echoparse(str) "{{{
   return substitute(a:str, '\\n', "\n  ", 'g')
 endfunction
 "}}}
-function! s:_read_deck(deckname) "{{{
+function! s:_get_deckpath(deckname) "{{{
   let path = expand(g:flashcards#decks_dir). '/'. a:deckname
   if filereadable(path)
-    return readfile(path)
+    return [path, 0]
+  end
+  let path = expand(a:deckname)
+  if filereadable(path)
+    return [path, 1]
   end
   throw 'flashcards: unreadable'
 endfunction
 "}}}
 function! s:_get_entries_and_orders(decknames) "{{{
-  let [entries, orders, srcidxes] = [{}, [], {}]
+  let [entries, orders, path2deckname_dic] = [{}, [], {}]
   let i = len(a:decknames)
   while i
     let i -= 1
-    let deckname = a:decknames[i]
     try
-      let entries[deckname] = s:_read_deck(deckname)
+      let [path, is_outsidedeck] = s:_get_deckpath(a:decknames[i])
     catch /flashcards: unreadable/
-      let path = expand(deckname)
-      if filereadable(path)
-        let deckname = '"'.fnamemodify(path, ':t').'"'
-        let a:decknames[i] = deckname
-        let entries[deckname] = readfile(path)
-      else
-        echoerr 'flashcards: such name deck is not readable: ' deckname
-        unlet a:decknames[i]
-        continue
-      end
+      echoerr 'flashcards: such name deck is not readable: ' a:decknames[i]
+      unlet a:decknames[i] | continue
     endtry
-    call extend(orders, map(copy(entries[deckname]), '[deckname, v:key, s:_should_ignore(v:val)]'))
+    if is_outsidedeck
+      let a:decknames[i] = '"'.fnamemodify(path, ':t').'"'
+    end
+    let path2deckname_dic[path] = a:decknames[i]
+    let entries[path] = readfile(path)
+    call extend(orders, map(copy(entries[path]), '[path, v:key, s:_should_ignore(v:val)]'))
   endwhile
-  return [entries, orders, srcidxes]
+  return [entries, orders, path2deckname_dic]
 endfunction
 "}}}
 function! s:_should_ignore(entrystr) "{{{
@@ -87,14 +87,14 @@ function! s:_get_newentry_of(oldentry, newmeta) "{{{
   end
 endfunction
 "}}}
-function! s:_get_wnr_in_crrtabpage(bname) "{{{
-  let bnr = bufnr(a:bname)
+function! s:_get_wnr_in_crrtabpage(path) "{{{
+  let bnr = bufnr(a:path)
   return index(tabpagebuflist(), bnr)+1
 endfunction
 "}}}
 
-function! s:_modify_orders_for_continue(difftracks, orders, newlines, deckname, oldlen, oldi) "{{{
-  let [offsets, modifier] = flashcards#_get_renewentries_offsets_and_modifier(a:difftracks, a:orders, a:deckname)
+function! s:_modify_orders_for_continue(difftracks, orders, newlines, path, oldlen, oldi) "{{{
+  let [offsets, modifier] = flashcards#_get_renewentries_offsets_and_modifier(a:difftracks, a:orders, a:path)
   call modifier.set_essential(a:newlines, a:oldlen)
   while modifier.ordersi < modifier.orderslen
     call modifier.set_oldi()
@@ -108,8 +108,8 @@ function! s:_modify_orders_for_continue(difftracks, orders, newlines, deckname, 
   return [a:orders, offsets.get_newi(a:oldi)]
 endfunction
 "}}}
-function! flashcards#_get_renewentries_offsets_and_modifier(difftracks, orders, deckname) "{{{
-  let [offset, save_oldi, offsets, modifier] = [0, -1, [], s:newModifier(a:orders, a:deckname)]
+function! flashcards#_get_renewentries_offsets_and_modifier(difftracks, orders, path) "{{{
+  let [offset, save_oldi, offsets, modifier] = [0, -1, [], s:newModifier(a:orders, a:path)]
   for [v, oldi, newi] in a:difftracks
     if v==0
       call extend(offsets, repeat([offset], oldi - save_oldi))
@@ -117,8 +117,8 @@ function! flashcards#_get_renewentries_offsets_and_modifier(difftracks, orders, 
       continue
     end
     if oldi!=-1
-      let orderidx = match(a:orders, '['''.a:deckname.''', '.oldi.',')
-      if orderidx==-1| throw 'flashcards: order is not found: '.a:deckname.' '.oldi | end
+      let orderidx = match(a:orders, '['''.a:path.''', '.oldi.',')
+      if orderidx==-1| throw 'flashcards: order is not found: '.a:path.' '.oldi | end
     end
     call modifier.reserve(v, oldi, newi)
     let offset += v
@@ -141,8 +141,8 @@ endfunction
 let s:Cards = {'base_hi': 'NONE'}
 let s:Cards.META_UNDISPLAY = '#'
 function! s:newCards(decknames, should_shuffle) "{{{
-  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'entries': {}, 'orders': [],  'srcidxes': {}}
-  let [self.entries, self.orders, self.srcidxes] = s:_get_entries_and_orders(a:decknames)
+  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'entries': {}, 'orders': []}
+  let [self.entries, self.orders, self.path2deckname_dic] = s:_get_entries_and_orders(a:decknames)
   if a:should_shuffle
     call s:_shuffle(self.orders)
   end
@@ -156,8 +156,9 @@ function! s:newCards(decknames, should_shuffle) "{{{
   return self
 endfunction
 "}}}
-function! s:newCards_continue(decknames, entries, orders, i, is_displaymode) "{{{
-  let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': a:entries, 'orders': a:orders,  'srcidxes': {}}
+function! s:newCards_continue(decknames, entries, orders, path2deckname_dic, i, is_displaymode) "{{{
+  let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '),
+    \ 'entries': a:entries, 'orders': a:orders, 'path2deckname_dic': a:path2deckname_dic}
   let self.totallen = len(self.orders)
   let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
   let self.displayedlen = len(tmp)
@@ -173,8 +174,8 @@ function! s:newCards_continue(decknames, entries, orders, i, is_displaymode) "{{
 endfunction
 "}}}
 function! s:Cards._get_crrorder() "{{{
-  let [deckname, entriesi, should_ignore] = self.orders[self.i]
-  return [deckname, entriesi, should_ignore]
+  let [path, entriesi, should_ignore] = self.orders[self.i]
+  return [path, entriesi, should_ignore]
 endfunction
 "}}}
 function! s:Cards._get_normal_crrcount() "{{{
@@ -198,18 +199,17 @@ function! s:Cards._get_jlen() "{{{
 endfunction
 "}}}
 function! s:Cards._write_modified_entry(newentry) "{{{
-  let [deckname, oldi] = self._get_crrorder()[:1]
-  let srcpath = expand(g:flashcards#decks_dir). '/'. deckname
-  if !filereadable(srcpath)
+  let [path, oldi] = self._get_crrorder()[:1]
+  if !filereadable(path)
     return 1
   end
   let newlines = readfile(srcpath)
-  let diff = flashcards#get_diff(self.entries[deckname], newlines)
-  let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, deckname)[0]
+  let diff = flashcards#get_diff(self.entries[path], newlines)
+  let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, path)[0]
   let newlines[offsets.get_newi(oldi)] = a:newentry
   call writefile(newlines, srcpath)
 
-  let self.entries[deckname][oldi] = a:newentry
+  let self.entries[path][oldi] = a:newentry
   let save_wnr = winnr()
   let wnr = s:_get_wnr_in_crrtabpage(srcpath)
   if !wnr
@@ -277,7 +277,7 @@ endfunction
 function! s:Cards._act_last() "{{{
   redraw!
   let self.i = self.totallen-1
-  let should_ignore = self_get_crrorder()[2]
+  let should_ignore = self._get_crrorder()[2]
   if should_ignore==-1 || !self.is_displaymode && should_ignore
     call self.nexti(-1)
   end
@@ -304,8 +304,8 @@ function! s:Cards._act_jump() "{{{
       let n += 1
     end
   endwhile
-  let [deckname, entriesi] = self._get_crrorder()[:1]
-  let entry = get(self.entries[deckname], entriesi, '')
+  let [path, entriesi] = self._get_crrorder()[:1]
+  let entry = get(self.entries[path], entriesi, '')
   let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
   let self.crrmeta = s:_get_meta_of(entry)
   call self._rebuild()
@@ -316,22 +316,21 @@ function! s:Cards._act_suspend(filename) "{{{
   if !isdirectory(suspenddir)
     call mkdir(suspenddir, 'p')
   end
-  let params = {'i': self.i, 'decknames': self.decknames, 'is_displaymode': self.is_displaymode, 'orders': self.orders, 'entries': self.entries}
+  let params = {'i': self.i, 'decknames': self.decknames, 'path2deckname_dic': self.path2deckname_dic, 'is_displaymode': self.is_displaymode, 'orders': self.orders, 'entries': self.entries}
   call writefile([string(params)], suspenddir. '/'. a:filename)
 endfunction
 "}}}
 function! s:Cards._act_edit() "{{{
-  let [deckname, oldi] = self._get_crrorder()[:1]
-  let bname = expand(g:flashcards#decks_dir). '/'. deckname
-  let wnr = s:_get_wnr_in_crrtabpage(bname)
+  let [path, oldi] = self._get_crrorder()[:1]
+  let wnr = s:_get_wnr_in_crrtabpage(path)
   if wnr
     exe wnr. 'wincmd w' | edit
   else
-    exe 'tabnew' bname
+    exe 'tabnew' path
   end
   let newlines = getline(1, '$')
-  let diff = flashcards#get_diff(self.entries[deckname], newlines)
-  let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, deckname)[0]
+  let diff = flashcards#get_diff(self.entries[path], newlines)
+  let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, path)[0]
   let idx = offsets.get_newi(oldi)
   call cursor(idx+1, 1)
 endfunction
@@ -401,11 +400,11 @@ function! s:Cards.nexti(delta) "{{{
   let delta = a:delta ? a:delta : 1
   let ignore_condiexp = self.is_displaymode ? 'should_ignore==-1' : 'should_ignore'
   while self.i >= 0 && self.i < self.totallen
-    let [deckname, entriesi, should_ignore] = self._get_crrorder()
+    let [path, entriesi, should_ignore] = self._get_crrorder()
     if eval(ignore_condiexp)
       let self.i += delta | continue
     end
-    let entry = get(self.entries[deckname], entriesi, '')
+    let entry = self.entries[path][entriesi]
     let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
     let self.crrmeta = s:_get_meta_of(entry)
     break
@@ -414,11 +413,12 @@ endfunction
 "}}}
 function! s:Cards.show_status() "{{{
   echo ''
+  let crrdeckname = self.path2deckname_dic[self._get_crrorder()[0]]
   if self.is_displaymode
-    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_displayed_crrcount(), self.displayedlen)
+    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, crrdeckname, self._get_displayed_crrcount(), self.displayedlen)
     echoh Comment | echon '[#] '
   else
-    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_normal_crrcount(), self.undisplayedlen)
+    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, crrdeckname, self._get_normal_crrcount(), self.undisplayedlen)
   end
   echoh Question | echon self._get_starstate()
   let self.base_hi = self.crrmeta=~self.META_UNDISPLAY ? 'Comment' : 'NONE'
@@ -491,11 +491,11 @@ endfunction
 
 "------------------
 let s:Modifier = {'adds': {}, 'dels': {}, 'ordersi': 0}
-function! s:newModifier(orders, deckname) "{{{
+function! s:newModifier(orders, path) "{{{
   let modifier = deepcopy(s:Modifier)
   let modifier.orders = a:orders
   let modifier.orderslen = len(a:orders)
-  let modifier.deckname = a:deckname
+  let modifier.path = a:path
   return modifier
 endfunction
 "}}}
@@ -521,7 +521,7 @@ function! s:Modifier.resolve_adds() "{{{
     return
   end
   let newis = self.adds[self.oldi]
-  call extend(self.orders, map(newis, '[self.deckname, v:val, s:_should_ignore(self.newlines[v:val])]'), self.ordersi)
+  call extend(self.orders, map(newis, '[self.path, v:val, s:_should_ignore(self.newlines[v:val])]'), self.ordersi)
   let adjust = len(newis)
   let self.orderslen += adjust
   let self.ordersi += adjust
@@ -538,7 +538,7 @@ endfunction
 "}}}
 function! s:Modifier.resolve_offsets(offsets) "{{{
   let newi = a:offsets.get_newi(self.oldi)
-  let self.orders[self.ordersi] = [self.deckname, newi, s:_should_ignore(self.newlines[newi])]
+  let self.orders[self.ordersi] = [self.path, newi, s:_should_ignore(self.newlines[newi])]
 endfunction
 "}}}
 function! s:Modifier.lastadds() "{{{
@@ -546,7 +546,7 @@ function! s:Modifier.lastadds() "{{{
     return
   end
   let newis = self.adds[self.oldlen]
-  call extend(self.orders, map(newis, '[self.deckname, v:val, s:_should_ignore(self.newlines[v:val])]'), self.ordersi)
+  call extend(self.orders, map(newis, '[self.path, v:val, s:_should_ignore(self.newlines[v:val])]'), self.ordersi)
   let adjust = len(newis)
   let self.orderslen += adjust
   let self.ordersi += adjust
@@ -749,20 +749,18 @@ function! flashcards#continue(...) "{{{
   let entries = suspended.entries
   let orders = suspended.orders
   let newentries = {}
-  for deckname in suspended.decknames
-    try
-      let newentries[deckname] = s:_read_deck(deckname)
-    catch /flashcards: unreadable/
+  for [path, deckname] in items(suspended.path2deckname_dic)
+    if !filereadable(path)
       echoerr 'flashcards: such name deck is not readable: ' deckname
-      call filter(orders, 'v:val!~# "^['''.deckname.''', "')
-      continue
-    endtry
-    let diff = flashcards#get_diff(entries[deckname], newentries[deckname])
+      call filter(suspended.decknames, 'v:val!=deckname') | continue
+    end
+    let newentries[path] = readfile(path)
+    let diff = flashcards#get_diff(entries[path], newentries[path])
     if diff.edit_distance
-      let [orders, suspended.i] = s:_modify_orders_for_continue(diff.tracks, orders, newentries[deckname], deckname, len(entries[deckname]), suspended.i)
+      let [orders, suspended.i] = s:_modify_orders_for_continue(diff.tracks, orders, newentries[path], path, len(entries[path]), suspended.i)
     end
   endfor
-  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.i, suspended.is_displaymode)
+  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.path2deckname_dic, suspended.i, suspended.is_displaymode)
   call flashcards#start(cards)
 endfunction
 "}}}
