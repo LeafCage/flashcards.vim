@@ -19,6 +19,7 @@ let s:defa_mappings.undisplay = ["u"]
 let s:defa_mappings.quit = ["q", "\<C-c>"]
 let s:defa_mappings.incstar = ["l"]
 let s:defa_mappings.decstar = ["h"]
+let s:defa_mappings.shuffle = ["S"]
 let s:defa_mappings.toggle_undisplaymode = ["U"]
 let s:defa_mappings.toggle_reversemode = ["R"]
 let g:flashcards#mappings = extend(s:defa_mappings, get(g:, 'flashcards#mappings', {}))

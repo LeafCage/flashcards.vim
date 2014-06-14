@@ -198,20 +198,27 @@ function! s:Cards._get_jlen() "{{{
   return len(substitute(self.crrentry, '[^[:tab:]]', '', 'g'))+1
 endfunction
 "}}}
+function! s:Cards._reset_crrentry_crrmeta() "{{{
+  let [path, entriesi] = self._get_crrorder()[:1]
+  let entry = get(self.entries[path], entriesi, '')
+  let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
+  let self.crrmeta = s:_get_meta_of(entry)
+endfunction
+"}}}
 function! s:Cards._write_modified_entry(newentry) "{{{
   let [path, oldi] = self._get_crrorder()[:1]
   if !filereadable(path)
     return 1
   end
-  let newlines = readfile(srcpath)
+  let newlines = readfile(path)
   let diff = flashcards#get_diff(self.entries[path], newlines)
   let offsets = flashcards#_get_renewentries_offsets_and_modifier(diff.tracks, self.orders, path)[0]
   let newlines[offsets.get_newi(oldi)] = a:newentry
-  call writefile(newlines, srcpath)
+  call writefile(newlines, path)
 
   let self.entries[path][oldi] = a:newentry
   let save_wnr = winnr()
-  let wnr = s:_get_wnr_in_crrtabpage(srcpath)
+  let wnr = s:_get_wnr_in_crrtabpage(path)
   if !wnr
     return
   end
@@ -304,10 +311,7 @@ function! s:Cards._act_jump() "{{{
       let n += 1
     end
   endwhile
-  let [path, entriesi] = self._get_crrorder()[:1]
-  let entry = get(self.entries[path], entriesi, '')
-  let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
-  let self.crrmeta = s:_get_meta_of(entry)
+  call self._reset_crrentry_crrmeta()
   call self._rebuild()
 endfunction
 "}}}
@@ -385,6 +389,20 @@ function! s:Cards._act_decstar() "{{{
   return 1
 endfunction
 "}}}
+function! s:Cards._act_shuffle() "{{{
+  echoh Question
+  if input('are you ready to shuffle [n/y] > ')!='y'
+    redraw!
+    call self._rebuild()
+    return
+  end
+  call s:_shuffle(self.orders)
+  redraw!
+  let self.j = 0
+  call self._reset_crrentry_crrmeta()
+  call self._rebuild()
+endfunction
+"}}}
 function! s:Cards._act_toggle_displaymode() "{{{
   let self.is_displaymode = !self.is_displaymode
   redraw!
@@ -398,15 +416,12 @@ endfunction
 function! s:Cards.nexti(delta) "{{{
   let self.i += a:delta
   let delta = a:delta ? a:delta : 1
-  let ignore_condiexp = self.is_displaymode ? 'should_ignore==-1' : 'should_ignore'
+  let ignore_condiexp = self.is_displaymode ? 'self.orders[self.i][2]==-1' : 'self.orders[self.i][2]'
   while self.i >= 0 && self.i < self.totallen
-    let [path, entriesi, should_ignore] = self._get_crrorder()
     if eval(ignore_condiexp)
       let self.i += delta | continue
     end
-    let entry = self.entries[path][entriesi]
-    let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
-    let self.crrmeta = s:_get_meta_of(entry)
+    call self._reset_crrentry_crrmeta()
     break
   endwhile
 endfunction
@@ -462,6 +477,8 @@ function! s:Cards.ask_action() "{{{
       call self._act_suspend('continue')
       call self._act_edit()
       throw 'flashcards: finish'
+    elseif index(g:flashcards#mappings.shuffle, act)!=-1
+      call self._act_shuffle() | return
     elseif index(g:flashcards#mappings.toggle_undisplaymode, act)!=-1
       call self._act_toggle_displaymode() | return
     elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
