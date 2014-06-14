@@ -2,10 +2,6 @@ if exists('s:save_cpo')| finish| endif
 let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
-let g:flashcards#settings_dir = get(g:, 'flashcards#settings_dir', '~/flashcards.vim')
-let g:flashcards#decks_dir = get(g:, 'flashcards#decks_dir', g:flashcards#settings_dir. '/decks')
-
-let s:DIALOGUE = 'j, k, n, p, m, i, I, e, s, q, ? '
 let s:setteddecknames = []
 let s:should_shuffle = 0
 
@@ -61,11 +57,26 @@ function! s:_get_entries_and_orders(decknames) "{{{
 endfunction
 "}}}
 function! s:_should_ignore(entrystr) "{{{
-  return a:entrystr =~ '^\s*\%(#\|$\)' ? -1 : s:_get_meta_of(a:entrystr)=~'i'
+  return a:entrystr =~ '^\s*\%(#\|$\)' ? -1 : s:_get_meta_of(a:entrystr)=~'#'
 endfunction
 "}}}
 function! s:_get_meta_of(entrystr) "{{{
-  return matchstr(a:entrystr, '\t#\zs[^[:tab:]]\{-}$')
+  return matchstr(a:entrystr, '\t#\[\zs[^[:tab:]]\{-}\ze\]$')
+endfunction
+"}}}
+function! s:_get_newentry_of(oldentry, newmeta) "{{{
+  if a:oldentry=~'\t#\%(\[[^[:tab:]]\{-}\]\)\?[^[[:tab:]][^[:tab:]]*$'
+    if a:newmeta == ''
+      return substitute(a:oldentry, '\t#\zs\[[^[:tab:]]\{-}\]\ze[^[:tab:]]\{-}$', '', '')
+    else
+      return substitute(a:oldentry, '\t#\zs\%(\[[^[:tab:]]\{-}\]\)\?\ze[^[:tab:]]\{-}$', '['.a:newmeta.']', '')
+    end
+  end
+  if a:newmeta == ''
+    return substitute(a:oldentry, '\t#\[[^[:tab:]]\{-}\]$', '', '')
+  else
+    return substitute(a:oldentry, '\t#\[[^[:tab:]]\{-}\]$\|$', '\t#['.a:newmeta.']', '')
+  end
 endfunction
 "}}}
 function! s:_get_wnr_in_crrtabpage(bname) "{{{
@@ -119,9 +130,8 @@ endfunction
 
 
 "--------------------------------------
-let s:Cards = {}
-let s:Cards.NORMAL_MODE = 0
-let s:Cards.WHOLE_MODE = 1
+let s:Cards = {'base_hi': 'NONE'}
+let s:Cards.META_UNDISPLAY = '#'
 function! s:newCards(decknames) "{{{
   let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': {}, 'orders': [],  'srcidxes': {}}
   let [self.entries, self.orders, self.srcidxes] = s:_get_entries_and_orders(a:decknames)
@@ -130,20 +140,20 @@ function! s:newCards(decknames) "{{{
   end
   let self.totallen = len(self.orders)
   let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
-  let self.unignoredlen = len(tmp)
-  let self.ignoredlen = len(filter(tmp, '!v:val[2]'))
-  let self.mode = s:Cards.NORMAL_MODE
+  let self.displayedlen = len(tmp)
+  let self.undisplayedlen = len(filter(tmp, '!v:val[2]'))
+  let self.is_displaymode = 0
   call extend(self, s:Cards, 'keep')
   return self
 endfunction
 "}}}
-function! s:newCards_continue(decknames, entries, orders, i, mode) "{{{
+function! s:newCards_continue(decknames, entries, orders, i, is_displaymode) "{{{
   let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': a:entries, 'orders': a:orders,  'srcidxes': {}}
   let self.totallen = len(self.orders)
   let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
-  let self.unignoredlen = len(tmp)
-  let self.ignoredlen = len(filter(tmp, '!v:val[2]'))
-  let self.mode = a:mode
+  let self.displayedlen = len(tmp)
+  let self.undisplayedlen = len(filter(tmp, '!v:val[2]'))
+  let self.is_displaymode = a:is_displaymode
   call extend(self, s:Cards, 'keep')
   call self.nexti(0)
   if self.i >= self.totallen
@@ -157,18 +167,20 @@ function! s:Cards._get_normal_crrcount() "{{{
   return len(filter(self.orders[:self.i], '!v:val[2]'))
 endfunction
 "}}}
-function! s:Cards._get_unignored_crrcount() "{{{
+function! s:Cards._get_displayed_crrcount() "{{{
   return len(filter(self.orders[:self.i], 'v:val[2]!=-1'))
 endfunction
 "}}}
 function! s:Cards._get_crrcount() "{{{
-  return self.mode==self.NORMAL_MODE ? self._get_normal_crrcount() : self._get_unignored_crrcount()
+  return self.is_displaymode ? self._get_displayed_crrcount() : self._get_normal_crrcount()
+endfunction
+"}}}
+function! s:Cards._get_starstate() "{{{
+  return substitute(self.crrmeta, '[^*]', '', 'g')
 endfunction
 "}}}
 function! s:Cards._get_jlen() "{{{
-  call s:CharCounter.reset()
-  call substitute(self.crrentry, '\t\|$', '\=s:CharCounter.inc()', 'g')
-  return s:CharCounter.count
+  return len(substitute(self.crrentry, '[^[:tab:]]', '', 'g'))+1
 endfunction
 "}}}
 function! s:Cards._write_modified_entry(newentry) "{{{
@@ -211,10 +223,10 @@ endfunction
 function! s:Cards._act_help() "{{{
   redraw!
   echoh MoreMsg
-  for [key, desc] in [['j', 'forward'], ['k', 'back'], ['l', 'go to next entry'], ['h', 'go to previous entry'], ['^, H', 'go to initial entry'], ['$, L', 'go to last entry'], ['i', 'ignore/unignore this entry'], ['I', 'toggle ignore mode'], ['e', 'edit deck source file'], ['s', 'suspend frashcards'], ['q', 'quit frashcards'], ['?', 'show helps']]
+  for [key, desc] in [['j', 'forward'], ['k', 'back'], ['n', 'go to next entry'], ['p', 'go to previous entry'], ['^', 'go to initial entry'], ['$', 'go to last entry'], ['u', 'undisplay/display this entry'], ['U', 'toggle ignore mode'], ['e', 'edit deck source file'], ['s', 'suspend frashcards'], ['q', 'quit frashcards'], ['?', 'show helps']]
     echo key. "\t". desc
   endfor
-  echoh NONE
+  exe 'echoh' self.base_hi
   call getchar()
   redraw!
   call self._rebuild()
@@ -265,7 +277,7 @@ function! s:Cards._act_last() "{{{
   redraw!
   let self.i = self.totallen-1
   let order = self.orders[self.i]
-  if order[2]==-1 || self.mode==self.NORMAL_MODE && order[2]
+  if order[2]==-1 || !self.is_displaymode && order[2]
     call self.nexti(-1)
   end
   let self.i = self.i < 0 ? 0 : self.i
@@ -273,60 +285,13 @@ function! s:Cards._act_last() "{{{
   call self._rebuild()
 endfunction
 "}}}
-function! s:Cards._act_suspend() "{{{
+function! s:Cards._act_suspend(filename) "{{{
   let suspenddir = expand(g:flashcards#settings_dir). '/suspended'
   if !isdirectory(suspenddir)
     call mkdir(suspenddir, 'p')
   end
-  let params = {'i': self.i, 'decknames': self.decknames, 'mode': self.mode, 'orders': self.orders, 'entries': self.entries}
-  call writefile([string(params)], suspenddir.'/data')
-endfunction
-"}}}
-function! s:Cards._act_ignore() "{{{
-  let is_ignored = self.crrmeta=~#'i'
-  let meta = is_ignored ? substitute(self.crrmeta, 'i', '', 'g') : self.crrmeta.'i'
-  let newentry = self.crrentry. (meta=='' ? '' : "\t#". meta)
-  if self._write_modified_entry(newentry)
-    return
-  end
-  let save_crrcount = self._get_crrcount()
-  let self.crrmeta = meta
-  let self.orders[self.i][2] = !is_ignored
-  let self.ignoredlen = len(filter(copy(self.orders), '!v:val[2]'))
-  if self.mode==self.NORMAL_MODE
-    let self.j = 0
-    let save_i = self.i
-    call self.nexti(1)
-    if self.crrmeta =~ 'i'
-      call self.nexti(-1)
-      if self.crrmeta =~ 'i'
-        let self.i = save_i
-      end
-    end
-  end
-  redraw!
-  echoh Question | echo '#'. save_crrcount 'entry is' (is_ignored ? 'unignored.' : 'ignored.') | echoh NONE
-  call self._rebuild()
-endfunction
-"}}}
-function! s:Cards._act_mark() "{{{
-  let is_marked = self.crrmeta=~#'m'
-  let meta = is_marked ? substitute(self.crrmeta, 'm', '', 'g') : self.crrmeta.'m'
-  let newentry = self.crrentry. (meta=='' ? '' : "\t#". meta)
-  if self._write_modified_entry(newentry)
-    return
-  end
-  let self.crrmeta = meta
-  redraw!
-  let crrcount = self._get_crrcount()
-  echoh Question | echo '#'. crrcount 'entry is' (is_marked ? 'unmarked.' : 'marked.') | echoh NONE
-  call self._rebuild()
-endfunction
-"}}}
-function! s:Cards._act_switch_ignoremode() "{{{
-  let self.mode = self.mode==self.NORMAL_MODE ? self.WHOLE_MODE : self.NORMAL_MODE
-  redraw!
-  call self._rebuild()
+  let params = {'i': self.i, 'decknames': self.decknames, 'is_displaymode': self.is_displaymode, 'orders': self.orders, 'entries': self.entries}
+  call writefile([string(params)], suspenddir. '/'. a:filename)
 endfunction
 "}}}
 function! s:Cards._act_edit() "{{{
@@ -346,13 +311,72 @@ function! s:Cards._act_edit() "{{{
   call cursor(idx+1, 1)
 endfunction
 "}}}
+function! s:Cards._act_undisplay() "{{{
+  let is_undisplayed = self.crrmeta=~#self.META_UNDISPLAY
+  let newmeta = is_undisplayed ? substitute(self.crrmeta, self.META_UNDISPLAY, '', 'g') : self.META_UNDISPLAY. self.crrmeta
+  if newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
+    return
+  end
+  let save_crrcount = self._get_crrcount()
+  let self.crrmeta = newmeta
+  let self.orders[self.i][2] = !is_undisplayed
+  let self.undisplayedlen = len(filter(copy(self.orders), '!v:val[2]'))
+  if !self.is_displaymode
+    let self.j = 0
+    let save_i = self.i
+    call self.nexti(1)
+    if self.crrmeta =~# self.META_UNDISPLAY
+      call self.nexti(-1)
+      if self.crrmeta =~# self.META_UNDISPLAY
+        let self.i = save_i
+      end
+    end
+  end
+  redraw!
+  echoh Question | echo '#'. save_crrcount 'entry is' (is_undisplayed ? 'displayed.' : 'undisplayed.')
+  call self._rebuild()
+  return 1
+endfunction
+"}}}
+function! s:Cards._act_incstar() "{{{
+  let newmeta = self.crrmeta . '*'
+  let starc = substitute(newmeta, '[^*]', '', 'g')
+  if len(starc)>5 || newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
+    return
+  end
+  let self.crrmeta = newmeta
+  redraw!
+  call self._rebuild()
+  return 1
+endfunction
+"}}}
+function! s:Cards._act_decstar() "{{{
+  let newmeta = substitute(self.crrmeta, '\*$', '', '')
+  if newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
+    return
+  end
+  let self.crrmeta = newmeta
+  redraw!
+  call self._rebuild()
+  return 1
+endfunction
+"}}}
+function! s:Cards._act_toggle_displaymode() "{{{
+  let self.is_displaymode = !self.is_displaymode
+  redraw!
+  call self._rebuild()
+endfunction
+"}}}
+function! s:Cards._act_switch_reversemode() "{{{
+endfunction
+"}}}
 
 function! s:Cards.nexti(delta) "{{{
   let self.i += a:delta
   let delta = a:delta ? a:delta : 1
   while self.i >= 0 && self.i < self.totallen
     let order = self.orders[self.i]
-    if order[2]==-1 || self.mode==self.NORMAL_MODE && order[2]
+    if order[2]==-1 || !self.is_displaymode && order[2]
       let self.i += delta | continue
     end
     let entry = get(self.entries[order[0]], order[1], '')
@@ -367,77 +391,63 @@ endfunction
 "}}}
 function! s:Cards.show_status() "{{{
   echo ''
-  if self.crrmeta=~'i'
-    echoh ErrorMsg | echon '[i]'
-  end
-  if self.crrmeta=~'m'
-    echoh TODO | echon '[m]'
-  end
-  echoh NONE | echon ' '
-  if self.mode==self.NORMAL_MODE
-    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_normal_crrcount(), self.ignoredlen)
+  if !self.is_displaymode
+    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_normal_crrcount(), self.undisplayedlen)
   else
-    echoh Title | echon printf("%s ([I]: %d/%d) ", self.name, self._get_unignored_crrcount(), self.unignoredlen)
+    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_displayed_crrcount(), self.displayedlen)
+    echoh Comment | echon '[#] '
   end
-  echoh MoreMsg | echon s:DIALOGUE | echoh NONE
-  echo '> '. s:_echoparse(matchstr(self.crrentry, '^.\{-}\%(\t\|$\)'))
+  echoh Question | echon self._get_starstate()
+  let self.base_hi = self.crrmeta=~self.META_UNDISPLAY ? 'Comment' : 'NONE'
+  exe 'echoh' self.base_hi
+  echo (self.crrmeta=~self.META_UNDISPLAY ? '# ' : '> '). s:_echoparse(matchstr(self.crrentry, '^.\{-}\%(\t\|$\)'))
   let self.jlen = self._get_jlen()
 endfunction
 "}}}
 function! s:Cards.flip(j) "{{{
+  exe 'echoh' self.base_hi
   echo '- '. s:_echoparse(matchstr(self.crrentry, '^\%(.\{-}\t\)\{'.(a:j).'}\zs.\{-}\ze\%(\t\|$\)'))
 endfunction
 "}}}
 function! s:Cards.ask_action() "{{{
   if self.j >= self.jlen-1
-    echoh MoreMsg | echo 'continue >'| echoh NONE
+    echoh MoreMsg | echo 'continue >'
   end
   while 1
     let act = nr2char(getchar())
-    if act==#'j' || act=="\<CR>"
+    if index(g:flashcards#mappings.advance, act)!=-1
       return 1
-    elseif act==#'k'
+    elseif index(g:flashcards#mappings.back, act)!=-1
       call self._act_back() | return
-    elseif act==#"l"
+    elseif index(g:flashcards#mappings.next, act)!=-1
       call self._act_next() | return
-    elseif act==#"h"
+    elseif index(g:flashcards#mappings.prev, act)!=-1
       call self._act_prev() | return
-    elseif act=~#'\^\|H'
+    elseif index(g:flashcards#mappings.head, act)!=-1
       call self._act_head() | return
-    elseif act=~#'\$\|L'
+    elseif index(g:flashcards#mappings.last, act)!=-1
       call self._act_last() | return
-    elseif act==#'q' || act=="\<C-c>"
+    elseif index(g:flashcards#mappings.quit, act)!=-1 || act=="\<C-c>"
       redraw! | throw 'flashcards: finish'
-    elseif act==#'s'
-      call self._act_suspend()
+    elseif index(g:flashcards#mappings.suspend, act)!=-1
+      call self._act_suspend('continue')
       redraw! | throw 'flashcards: finish'
-    elseif act==#'e'
+    elseif index(g:flashcards#mappings.edit, act)!=-1
       redraw!
-      call self._act_suspend()
+      call self._act_suspend('continue')
       call self._act_edit()
       throw 'flashcards: finish'
-    elseif act==#'I'
-      call self._act_switch_ignoremode() | return
-    elseif act==#'i'
-      call self._act_ignore() | return
-    elseif act==#'m'
-      call self._act_mark() | return
-    elseif act==#'?'
+    elseif index(g:flashcards#mappings.toggle_undisplaymode, act)!=-1
+      call self._act_toggle_displaymode() | return
+    elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
+      call self._act_switch_reversemode() | return
+    elseif index(g:flashcards#mappings.undisplay, act)!=-1 && self._act_undisplay() | return
+    elseif index(g:flashcards#mappings.decstar, act)!=-1 && self._act_decstar() | return
+    elseif index(g:flashcards#mappings.incstar, act)!=-1 && self._act_incstar() | return
+    elseif index(g:flashcards#mappings.help, act)!=-1
       call self._act_help() | return
     end
   endwhile
-endfunction
-"}}}
-
-
-"------------------
-let s:CharCounter = {'count': 0}
-function! s:CharCounter.reset() "{{{
-  let self.count = 0
-endfunction
-"}}}
-function! s:CharCounter.inc() "{{{
-  let self.count += 1
 endfunction
 "}}}
 
@@ -626,12 +636,21 @@ endfunction
 "======================================
 "Public:
 function! flashcards#get_decknames() "{{{
-  let decksdir = expand(g:flashcards#decks_dir)
-  return map(split(globpath(decksdir, '**/*'), '\n'), 'substitute(v:val, decksdir, "", "")')
+  let decksdir = expand(g:flashcards#decks_dir). '/'
+  return map(split(globpath(decksdir, '**/*'), '\n'), 'isdirectory(v:val) ? substitute(v:val, decksdir, "", "")."/" : substitute(v:val, decksdir, "", "")')
 endfunction
 "}}}
 function! flashcards#edit_deck(deckname) "{{{
-  exe 'edit' expand(g:flashcards#decks_dir). a:deckname
+  let path = expand(g:flashcards#decks_dir). '/'. a:deckname
+  if isdirectory(path)
+    echoerr 'flashcards: directoryは指定できません。'
+    return
+  end
+  let dir = fnamemodify(path, ':h')
+  if !isdirectory(dir)
+    call mkdir(dir, 'p')
+  end
+  exe 'edit' path
 endfunction
 "}}}
 
@@ -670,7 +689,10 @@ function! flashcards#start(...) "{{{
     call flashcards#reset()
     call flashcards#load('test.tango')
   end
+  let save_mfd = &mfd
+  set maxfuncdepth=10000
   let cards = is_continue ? a:1 : s:newCards(s:setteddecknames)
+  redraw!
   call cards.nexti(0)
   try
     while cards.i < cards.totallen
@@ -688,18 +710,26 @@ function! flashcards#start(...) "{{{
       let cards.j = 0
       redraw!
     endwhile
+  catch /\%(E132\|E169\):/
+    call cards._act_suspend('on_error')
+    unlet! cards
+    call flashcards#continue('on_error')
   catch /flashcards: finish/
+  finally
+    echoh NONE
+    let &mfd = save_mfd
   endtry
 endfunction
 "}}}
 
-function! flashcards#continue() "{{{
+function! flashcards#continue(...) "{{{
   let suspenddir = expand(g:flashcards#settings_dir). '/suspended'
-  if !filereadable(suspenddir. '/data')
-    echo 'flashcards: suspendfile is not exist.'
+  let _filename = a:0 ? a:1 : 'continue'
+  if !filereadable(suspenddir. '/'. _filename)
+    echo 'flashcards: continuefile is not exist.'
     return
   end
-  let suspended = eval(readfile(suspenddir. '/data')[0])
+  let suspended = eval(readfile(suspenddir. '/'. _filename)[0])
   let entries = suspended.entries
   let orders = suspended.orders
   let newentries = {}
@@ -715,7 +745,7 @@ function! flashcards#continue() "{{{
       let [orders, suspended.i] = s:_modify_orders_for_continue(diff.tracks, orders, newentries[deckname], deckname, len(entries[deckname]), suspended.i)
     end
   endfor
-  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.i, suspended.mode)
+  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.i, suspended.is_displaymode)
   call flashcards#start(cards)
 endfunction
 "}}}
