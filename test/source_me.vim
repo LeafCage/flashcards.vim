@@ -26,19 +26,16 @@ function! s:diff_test() "{{{
   let diff = flashcards#get_diff(['a', 'b', 'c'], ['a', 'A', 'b', 'c'])
   call s:echo(2.1, diff.edit_distance ==# 1)
   call s:echo(2.2, diff.tracks ==# [[0, 0, 0], [1, 0, 1], [0, 1, 2], [0, 2, 3]])
-  "call s:echo(2.2, diff.tracks ==# [[0, 0, 0, 'a'], [1, 0, 1, 'A'], [0, 1, 2, 'b'], [0, 2, 3, 'c']])
 
   " 要素が削除されたとき
   let diff = flashcards#get_diff(['a', 'b', 'c'], ['a', 'c'])
   call s:echo(3.1, diff.edit_distance ==# 1)
   call s:echo(3.2, diff.tracks ==# [[0, 0, 0], [-1, 1, 0], [0, 2, 1]])
-  "call s:echo(3.2, diff.tracks ==# [[0, 0, 0, 'a'], [-1, 1, 0, 'b'], [0, 2, 1, 'c']])
 
   " 追加して削除があったとき (要素が修正されたとき)
   let diff = flashcards#get_diff(['a', 'b', 'c'], ['a', 'B', 'c'])
   call s:echo(4.1, diff.edit_distance ==# 2)
   call s:echo(4.2, diff.tracks ==# [[0, 0, 0], [1, 0, 1], [-1, 1, 1], [0, 2, 2]])
-  "call s:echo(4.2, diff.tracks ==# [[0, 0, 0, 'a'], [1, 0, 1, 'B'], [-1, 1, 1, 'b'], [0, 2, 2, 'c']])
 
   " 初めの要素が削除されたとき (idxには-1が入る)
   let diff = flashcards#get_diff(['a', 'b', 'c'], ['c'])
@@ -138,8 +135,26 @@ function! s:get_offsets_and_modifier_test() "{{{
 endfunction
 "}}}
 
+"======================================
+function! s:s_get_newentry_of() "{{{
+  echo 's_get_newentry_of test'
+  let S = taste#get_sfuncs('autoload/flashcards.vim')
+  if S=={}
+    echo 'autoload/flashcards.vim がまだ読み込まれていません'
+    return
+  end
+  call s:echo(1.1, S._get_newentry_of("\t#aaa", 'i') == "\t#[i]aaa")
+  call s:echo(1.2, S._get_newentry_of("\t#[i]aaa", '') == "\t#aaa")
+  call s:echo(1.3, S._get_newentry_of("\t#aaa", '') == "\t#aaa")
+  call s:echo(2.1, S._get_newentry_of("aaaa", 'i') == "aaaa\t#[i]")
+  call s:echo(2.2, S._get_newentry_of("aaaa\t#[jkl]", '') == "aaaa")
+  call s:echo(2.3, S._get_newentry_of("aaaa\t", '***') == "aaaa\t\t#[***]")
+endfunction
+"}}}
+
 call s:diff_test()
 call s:get_offsets_and_modifier_test()
+call s:s_get_newentry_of()
 "=============================================================================
 "END "{{{1
 let &cpo = s:save_cpo| unlet s:save_cpo
