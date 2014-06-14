@@ -18,7 +18,7 @@ let defa_mappings.quit = ["q", "\<C-c>"]
 let defa_mappings.incstar = ["l"]
 let defa_mappings.decstar = ["h"]
 let defa_mappings.toggle_undisplaymode = ["U"]
-let defa_mappings.help = ["?"]
+let defa_mappings.toggle_reversemode = ["R"]
 let g:flashcards#mappings = extend(defa_mappings, get(g:, 'flashcards#mappings', {}))
 
 aug flashcards
@@ -27,8 +27,8 @@ aug flashcards
 aug END
 
 command! -nargs=1 -complete=customlist,s:decks_comp  FlashcardsEdit    call s:flashcards_edit(<q-args>)
-command! -nargs=+ -complete=customlist,s:decks_comp  FlashcardsBegin    echo 'ok'
-command! -nargs=+ -complete=customlist,s:decks_comp  FlashcardsBeginShuffled    echo 'ok'
+command! -nargs=+ -complete=customlist,s:decks_comp  FlashcardsBegin    call flashcards#start([<f-args>], 0)
+command! -nargs=+ -complete=customlist,s:decks_comp  FlashcardsBeginShuffled    call flashcards#start([<f-args>], 1)
 command! -nargs=0  FlashcardsContinue    call flashcards#continue()
 
 function! s:decks_comp(arglead, cmdline, cursorpos) "{{{

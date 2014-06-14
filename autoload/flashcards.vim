@@ -2,10 +2,7 @@ if exists('s:save_cpo')| finish| endif
 let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
-let s:setteddecknames = []
-let s:should_shuffle = 0
 
-"======================================
 "Misc:
 let s:R = vital#of('flashcards').import('Random.Xor128')
 call s:R.srand()
@@ -49,6 +46,7 @@ function! s:_get_entries_and_orders(decknames) "{{{
     try
       let entries[deckname] = s:_read_deck(deckname)
     catch /flashcards: unreadable/
+      call filter(a:decknames, 'v:val!=#deckname')
       continue
     endtry
     call extend(orders, map(copy(entries[deckname]), '[deckname, v:key, s:_should_ignore(v:val)]'))
@@ -132,12 +130,13 @@ endfunction
 "--------------------------------------
 let s:Cards = {'base_hi': 'NONE'}
 let s:Cards.META_UNDISPLAY = '#'
-function! s:newCards(decknames) "{{{
-  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'entries': {}, 'orders': [],  'srcidxes': {}}
+function! s:newCards(decknames, should_shuffle) "{{{
+  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'entries': {}, 'orders': [],  'srcidxes': {}}
   let [self.entries, self.orders, self.srcidxes] = s:_get_entries_and_orders(a:decknames)
-  if s:should_shuffle
+  if a:should_shuffle
     call s:_shuffle(self.orders)
   end
+  let name = join(a:decknames, ', ')
   let self.totallen = len(self.orders)
   let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
   let self.displayedlen = len(tmp)
@@ -163,6 +162,11 @@ function! s:newCards_continue(decknames, entries, orders, i, is_displaymode) "{{
   return self
 endfunction
 "}}}
+function! s:Cards._get_crrorder() "{{{
+  let [deckname, entriesi, should_ignore] = self.orders[self.i]
+  return [deckname, entriesi, should_ignore]
+endfunction
+"}}}
 function! s:Cards._get_normal_crrcount() "{{{
   return len(filter(self.orders[:self.i], '!v:val[2]'))
 endfunction
@@ -184,8 +188,7 @@ function! s:Cards._get_jlen() "{{{
 endfunction
 "}}}
 function! s:Cards._write_modified_entry(newentry) "{{{
-  let order = self.orders[self.i]
-  let [deckname, oldi] = [order[0], order[1]]
+  let [deckname, oldi] = self._get_crrorder()[:1]
   let srcpath = expand(g:flashcards#decks_dir). '/'. deckname
   if !filereadable(srcpath)
     return 1
@@ -218,18 +221,6 @@ function! s:Cards._rebuild() "{{{
   if self.ask_action()
     let self.j += 1
   end
-endfunction
-"}}}
-function! s:Cards._act_help() "{{{
-  redraw!
-  echoh MoreMsg
-  for [key, desc] in [['j', 'forward'], ['k', 'back'], ['n', 'go to next entry'], ['p', 'go to previous entry'], ['^', 'go to initial entry'], ['$', 'go to last entry'], ['u', 'undisplay/display this entry'], ['U', 'toggle ignore mode'], ['e', 'edit deck source file'], ['s', 'suspend frashcards'], ['q', 'quit frashcards'], ['?', 'show helps']]
-    echo key. "\t". desc
-  endfor
-  exe 'echoh' self.base_hi
-  call getchar()
-  redraw!
-  call self._rebuild()
 endfunction
 "}}}
 function! s:Cards._act_back() "{{{
@@ -276,8 +267,8 @@ endfunction
 function! s:Cards._act_last() "{{{
   redraw!
   let self.i = self.totallen-1
-  let order = self.orders[self.i]
-  if order[2]==-1 || !self.is_displaymode && order[2]
+  let should_ignore = self_get_crrorder()[2]
+  if should_ignore==-1 || !self.is_displaymode && should_ignore
     call self.nexti(-1)
   end
   let self.i = self.i < 0 ? 0 : self.i
@@ -295,8 +286,7 @@ function! s:Cards._act_suspend(filename) "{{{
 endfunction
 "}}}
 function! s:Cards._act_edit() "{{{
-  let order = self.orders[self.i]
-  let [deckname, oldi] = [order[0], order[1]]
+  let [deckname, oldi] = self._get_crrorder()[:1]
   let bname = expand(g:flashcards#decks_dir). '/'. deckname
   let wnr = s:_get_wnr_in_crrtabpage(bname)
   if wnr
@@ -375,11 +365,11 @@ function! s:Cards.nexti(delta) "{{{
   let self.i += a:delta
   let delta = a:delta ? a:delta : 1
   while self.i >= 0 && self.i < self.totallen
-    let order = self.orders[self.i]
-    if order[2]==-1 || !self.is_displaymode && order[2]
+    let [deckname, entriesi, should_ignore] = self._get_crrorder()
+    if should_ignore==-1 || !self.is_displaymode && should_ignore
       let self.i += delta | continue
     end
-    let entry = get(self.entries[order[0]], order[1], '')
+    let entry = get(self.entries[deckname], entriesi, '')
     if entry == ''
       let self.i += delta | continue
     end
@@ -392,9 +382,9 @@ endfunction
 function! s:Cards.show_status() "{{{
   echo ''
   if !self.is_displaymode
-    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_normal_crrcount(), self.undisplayedlen)
+    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_normal_crrcount(), self.undisplayedlen)
   else
-    echoh Title | echon printf("%s (%d/%d) ", self.name, self._get_displayed_crrcount(), self.displayedlen)
+    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_displayed_crrcount(), self.displayedlen)
     echoh Comment | echon '[#] '
   end
   echoh Question | echon self._get_starstate()
@@ -444,8 +434,6 @@ function! s:Cards.ask_action() "{{{
     elseif index(g:flashcards#mappings.undisplay, act)!=-1 && self._act_undisplay() | return
     elseif index(g:flashcards#mappings.decstar, act)!=-1 && self._act_decstar() | return
     elseif index(g:flashcards#mappings.incstar, act)!=-1 && self._act_incstar() | return
-    elseif index(g:flashcards#mappings.help, act)!=-1
-      call self._act_help() | return
     end
   endwhile
 endfunction
@@ -664,34 +652,11 @@ function! flashcards#create() "{{{
   call flashcards#edit_deck(name)
 endfunction
 "}}}
-function! flashcards#reset() "{{{
-  let s:setteddecknames = []
-  let s:should_shuffle = 0
-endfunction
-"}}}
-function! flashcards#load(deckname) "{{{
-  let path = expand(g:flashcards#decks_dir). '/'. a:deckname
-  if !filereadable(path)
-    echoh ErrorMsg| echo 'flashcards: such name deck is not existed.'| echoh NONE
-    return
-  end
-  let s:setteddecknames += [a:deckname]
-endfunction
-"}}}
-function! flashcards#shuffle() "{{{
-  let s:should_shuffle = 1
-endfunction
-"}}}
 
-function! flashcards#start(...) "{{{
-  let is_continue = a:0
-  if !is_continue
-    call flashcards#reset()
-    call flashcards#load('test.tango')
-  end
+function! flashcards#start(source, ...) "{{{
+  let cards = a:0 ? s:newCards(a:source, a:1) : a:source
   let save_mfd = &mfd
   set maxfuncdepth=10000
-  let cards = is_continue ? a:1 : s:newCards(s:setteddecknames)
   redraw!
   call cards.nexti(0)
   try
@@ -718,6 +683,11 @@ function! flashcards#start(...) "{{{
   finally
     echoh NONE
     let &mfd = save_mfd
+    let suspenddir = expand(g:flashcards#settings_dir). '/suspended'
+    call delete(suspenddir. '/on_error')
+    if exists('cards') && cards.i >= cards.totallen
+      call delete(suspenddir. '/continue')
+    end
   endtry
 endfunction
 "}}}
