@@ -23,7 +23,7 @@ endfunction
 "}}}
 
 "==================
-let s:kind = {'name': 'flashcards/deck', 'default_action': 'begin_shuffled',
+let s:kind = {'name': 'flashcards/deck', 'default_action': g:flashcards#unite_default_action,
   \ 'action_table': {'begin': {'description': 'begin flashcard.', 'is_selectable': 1},
   \ 'begin_shuffled': {'description': 'begin flashcard as shuffled.', 'is_selectable': 1},
   \ 'edit': {'description': 'edit flashcards deck', 'is_selectable': 0},

@@ -36,21 +36,31 @@ function! s:_read_deck(deckname) "{{{
   if filereadable(path)
     return readfile(path)
   end
-  echoh ErrorMsg| echo 'flashcards: such name deck is not existed.'| echoh NONE
   throw 'flashcards: unreadable'
 endfunction
 "}}}
 function! s:_get_entries_and_orders(decknames) "{{{
   let [entries, orders, srcidxes] = [{}, [], {}]
-  for deckname in a:decknames
+  let i = len(a:decknames)
+  while i
+    let i -= 1
+    let deckname = a:decknames[i]
     try
       let entries[deckname] = s:_read_deck(deckname)
     catch /flashcards: unreadable/
-      call filter(a:decknames, 'v:val!=#deckname')
-      continue
+      let path = expand(deckname)
+      if filereadable(path)
+        let deckname = '"'.fnamemodify(path, ':t').'"'
+        let a:decknames[i] = deckname
+        let entries[deckname] = readfile(path)
+      else
+        echoerr 'flashcards: such name deck is not readable: ' deckname
+        unlet a:decknames[i]
+        continue
+      end
     endtry
     call extend(orders, map(copy(entries[deckname]), '[deckname, v:key, s:_should_ignore(v:val)]'))
-  endfor
+  endwhile
   return [entries, orders, srcidxes]
 endfunction
 "}}}
@@ -136,7 +146,7 @@ function! s:newCards(decknames, should_shuffle) "{{{
   if a:should_shuffle
     call s:_shuffle(self.orders)
   end
-  let name = join(a:decknames, ', ')
+  let self.name = join(a:decknames, ', ')
   let self.totallen = len(self.orders)
   let tmp = filter(copy(self.orders), 'v:val[2]!=-1')
   let self.displayedlen = len(tmp)
@@ -276,6 +286,31 @@ function! s:Cards._act_last() "{{{
   call self._rebuild()
 endfunction
 "}}}
+function! s:Cards._act_jump() "{{{
+  echoh Question
+  let input = str2nr(input('jump to > '))
+  redraw!
+  let crrlen = self.is_displaymode ? self.displayedlen : self.undisplayedlen
+  if input==0 || input > crrlen
+    call self._rebuild()
+    return
+  end
+  let self.j = 0
+  let [self.i, n] = [-1, 0]
+  let ignore_condiexp = self.is_displaymode ? 'self.orders[self.i][2]==-1' : 'self.orders[self.i][2]'
+  while n < input
+    let self.i += 1
+    if !eval(ignore_condiexp)
+      let n += 1
+    end
+  endwhile
+  let [deckname, entriesi] = self._get_crrorder()[:1]
+  let entry = get(self.entries[deckname], entriesi, '')
+  let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
+  let self.crrmeta = s:_get_meta_of(entry)
+  call self._rebuild()
+endfunction
+"}}}
 function! s:Cards._act_suspend(filename) "{{{
   let suspenddir = expand(g:flashcards#settings_dir). '/suspended'
   if !isdirectory(suspenddir)
@@ -364,15 +399,13 @@ endfunction
 function! s:Cards.nexti(delta) "{{{
   let self.i += a:delta
   let delta = a:delta ? a:delta : 1
+  let ignore_condiexp = self.is_displaymode ? 'should_ignore==-1' : 'should_ignore'
   while self.i >= 0 && self.i < self.totallen
     let [deckname, entriesi, should_ignore] = self._get_crrorder()
-    if should_ignore==-1 || !self.is_displaymode && should_ignore
+    if eval(ignore_condiexp)
       let self.i += delta | continue
     end
     let entry = get(self.entries[deckname], entriesi, '')
-    if entry == ''
-      let self.i += delta | continue
-    end
     let self.crrentry = substitute(entry, '\t#[^[:tab:]]*$', '', 'g')
     let self.crrmeta = s:_get_meta_of(entry)
     break
@@ -381,11 +414,11 @@ endfunction
 "}}}
 function! s:Cards.show_status() "{{{
   echo ''
-  if !self.is_displaymode
-    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_normal_crrcount(), self.undisplayedlen)
-  else
+  if self.is_displaymode
     echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_displayed_crrcount(), self.displayedlen)
     echoh Comment | echon '[#] '
+  else
+    echoh Title | echon printf("%s > %s (%d/%d) ", self.name, self._get_crrorder()[0], self._get_normal_crrcount(), self.undisplayedlen)
   end
   echoh Question | echon self._get_starstate()
   let self.base_hi = self.crrmeta=~self.META_UNDISPLAY ? 'Comment' : 'NONE'
@@ -417,6 +450,8 @@ function! s:Cards.ask_action() "{{{
       call self._act_head() | return
     elseif index(g:flashcards#mappings.last, act)!=-1
       call self._act_last() | return
+    elseif index(g:flashcards#mappings.jump, act)!=-1
+      call self._act_jump() | return
     elseif index(g:flashcards#mappings.quit, act)!=-1 || act=="\<C-c>"
       redraw! | throw 'flashcards: finish'
     elseif index(g:flashcards#mappings.suspend, act)!=-1
@@ -638,7 +673,18 @@ function! flashcards#edit_deck(deckname) "{{{
   if !isdirectory(dir)
     call mkdir(dir, 'p')
   end
-  exe 'edit' path
+  exe 'edit +set\ filetype=flashcards' path
+endfunction
+"}}}
+function! flashcards#comp_decks(arglead, cmdline, cursorpos) "{{{
+  let beens = split(a:cmdline)[1:]
+  let tmp = a:cmdline[a:cursorpos-1]
+  let optlead = tmp=='-' ? tmp : a:arglead
+  if optlead=~'^-'
+    return filter(['-shuffle'], 'v:val =~ "^".optlead && index(beens, v:val)==-1')
+  end
+  let decknames = flashcards#get_decknames()
+  return filter(decknames, 'v:val =~ "^".a:arglead && index(beens, v:val)==-1')
 endfunction
 "}}}
 
@@ -707,6 +753,7 @@ function! flashcards#continue(...) "{{{
     try
       let newentries[deckname] = s:_read_deck(deckname)
     catch /flashcards: unreadable/
+      echoerr 'flashcards: such name deck is not readable: ' deckname
       call filter(orders, 'v:val!~# "^['''.deckname.''', "')
       continue
     endtry
