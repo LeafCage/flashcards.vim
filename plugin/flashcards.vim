@@ -4,22 +4,22 @@ scriptencoding utf-8
 "=============================================================================
 let g:flashcards#settings_dir = get(g:, 'flashcards#settings_dir', '~/flashcards.vim')
 let g:flashcards#decks_dir = get(g:, 'flashcards#decks_dir', g:flashcards#settings_dir. '/decks')
-let defa_mappings = {}
-let defa_mappings.advance = ["j", "\<CR>"]
-let defa_mappings.back = ["k"]
-let defa_mappings.next = ["n"]
-let defa_mappings.prev = ["p"]
-let defa_mappings.head = ["^"]
-let defa_mappings.last = ["$"]
-let defa_mappings.suspend = ["s"]
-let defa_mappings.edit = ["e"]
-let defa_mappings.undisplay = ["u"]
-let defa_mappings.quit = ["q", "\<C-c>"]
-let defa_mappings.incstar = ["l"]
-let defa_mappings.decstar = ["h"]
-let defa_mappings.toggle_undisplaymode = ["U"]
-let defa_mappings.toggle_reversemode = ["R"]
-let g:flashcards#mappings = extend(defa_mappings, get(g:, 'flashcards#mappings', {}))
+let s:defa_mappings = {}
+let s:defa_mappings.advance = ["j", "\<CR>"]
+let s:defa_mappings.back = ["k"]
+let s:defa_mappings.next = ["n"]
+let s:defa_mappings.prev = ["p"]
+let s:defa_mappings.head = ["^"]
+let s:defa_mappings.last = ["$"]
+let s:defa_mappings.suspend = ["s"]
+let s:defa_mappings.edit = ["e"]
+let s:defa_mappings.undisplay = ["u"]
+let s:defa_mappings.quit = ["q", "\<C-c>"]
+let s:defa_mappings.incstar = ["l"]
+let s:defa_mappings.decstar = ["h"]
+let s:defa_mappings.toggle_undisplaymode = ["U"]
+let s:defa_mappings.toggle_reversemode = ["R"]
+let g:flashcards#mappings = extend(s:defa_mappings, get(g:, 'flashcards#mappings', {}))
 
 aug flashcards
   au!
