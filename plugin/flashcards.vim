@@ -20,7 +20,7 @@ let s:defa_mappings.quit = ["q", "\<C-c>"]
 let s:defa_mappings.incstar = ["l"]
 let s:defa_mappings.decstar = ["h"]
 let s:defa_mappings.shuffle = ["S"]
-let s:defa_mappings.toggle_undisplaymode = ["U"]
+let s:defa_mappings.toggle_undisplaymode = ["U", "#"]
 let s:defa_mappings.toggle_reversemode = ["R"]
 let g:flashcards#mappings = extend(s:defa_mappings, get(g:, 'flashcards#mappings', {}))
 
@@ -30,17 +30,21 @@ aug flashcards
 aug END
 
 command! -nargs=1 -complete=customlist,flashcards#comp_decks  FlashcardsEdit    call s:flashcards_edit(<q-args>)
-command! -nargs=+ -complete=customlist,flashcards#comp_decks  FlashcardsBegin    call s:parse_flashcardsbegin([<f-args>])
-command! -nargs=0  FlashcardsContinue    call flashcards#continue()
+command! -nargs=* -complete=customlist,flashcards#comp_decks  FlashcardsBegin    call s:parse_flashcardsbegin([<f-args>])
 
 function! s:parse_flashcardsbegin(decknames) "{{{
-  let [i, should_shuffle] = [len(a:decknames), 0]
+  let i = len(a:decknames)
+  if i==0
+    call flashcards#continue()
+    return
+  end
+  let opts = {'-shuffle': 0, '-star': 0}
   while i
     let i -= 1
     if a:decknames[i] =~ '^-'
       let opt = remove(a:decknames, i)
-      if opt ==# '-shuffle'
-        let should_shuffle = 1
+      if has_key(opts, opt)
+        let opts[opt] = 1
       else
         echoerr 'invalid option:' opt
       end
@@ -50,7 +54,7 @@ function! s:parse_flashcardsbegin(decknames) "{{{
     echoh Error | echom 'flashcards: deckname required' | echoh NONE
     return
   end
-  call flashcards#start(a:decknames, should_shuffle)
+  call flashcards#start(a:decknames, opts)
 endfunction
 "}}}
 function! s:flashcards_edit(deckname) "{{{
