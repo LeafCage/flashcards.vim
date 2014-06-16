@@ -27,6 +27,10 @@ function! s:_shuffle(list) "{{{
   return a:list
 endfunction
 "}}}
+function! s:_descsort_by_star(a, b) "{{{
+  return s:_starq_of_order(a:b) - s:_starq_of_order(a:a)
+endfunction
+"}}}
 function! s:_echoparse(str) "{{{
   return substitute(a:str, '\\n', "\n  ", 'g')
 endfunction
@@ -55,6 +59,14 @@ endfunction
 "}}}
 function! s:_set_should_ignore_of_order(order, val) "{{{
   let a:order[2][0] = a:val
+endfunction
+"}}}
+function! s:_starq_of_order(order) "{{{
+  return a:order[2][1]
+endfunction
+"}}}
+function! s:_set_starq_of_order(order, val) "{{{
+  let a:order[2][1] = a:val
 endfunction
 "}}}
 function! s:_get_starc(meta) "{{{
@@ -164,7 +176,7 @@ function! s:newCards(decknames, options) "{{{
     call s:_shuffle(self.orders)
   end
   if a:options['-star']
-    call s:_descsort_by_star(self)
+    call sort(self.orders, 's:_descsort_by_star')
   end
   return self
 endfunction
@@ -361,10 +373,12 @@ endfunction
 "}}}
 function! s:Cards._act_incstar() "{{{
   let newmeta = self.crrmeta . '*'
-  if len(s:_get_starc(newmeta))>10 || newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
+  let starq = len(s:_get_starc(newmeta))
+  if starq>10 || newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
     return
   end
   let self.crrmeta = newmeta
+  call s:_set_starq_of_order(self.orders[self.i], starq)
   redraw!
   call self._rebuild()
   return 1
@@ -372,10 +386,12 @@ endfunction
 "}}}
 function! s:Cards._act_decstar() "{{{
   let newmeta = substitute(self.crrmeta, '\*$', '', '')
+  let starq = len(s:_get_starc(newmeta))
   if newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
     return
   end
   let self.crrmeta = newmeta
+  call s:_set_starq_of_order(self.orders[self.i], starq)
   redraw!
   call self._rebuild()
   return 1
