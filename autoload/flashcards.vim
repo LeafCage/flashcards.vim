@@ -43,6 +43,54 @@ function! s:_get_deckpath(deckname) "{{{
   throw 'flashcards: unreadable'
 endfunction
 "}}}
+function! s:_create_orderprop(entrystr) "{{{
+  let meta = s:_get_meta_of(a:entrystr)
+  let should_ignore = a:entrystr =~ '^\s*\%(#\|$\)' ? -1 : meta=~'#'
+  return [should_ignore, len(s:_get_starc(meta))]
+endfunction
+"}}}
+function! s:_should_ignore_of_order(order) "{{{
+  return a:order[2][0]
+endfunction
+"}}}
+function! s:_set_should_ignore_of_order(order, val) "{{{
+  let a:order[2][0] = a:val
+endfunction
+"}}}
+function! s:_get_starc(meta) "{{{
+  return substitute(a:meta, '[^*]', '', 'g')
+endfunction
+"}}}
+function! s:_get_newentry_of(oldentry, newmeta) "{{{
+  if a:oldentry=~'\t#\%(\[[^[:tab:]]\{-}\]\)\?[^[[:tab:]][^[:tab:]]*$'
+    if a:newmeta == ''
+      return substitute(a:oldentry, '\t#\zs\[[^[:tab:]]\{-}\]\ze[^[:tab:]]\{-}$', '', '')
+    else
+      return substitute(a:oldentry, '\t#\zs\%(\[[^[:tab:]]\{-}\]\)\?\ze[^[:tab:]]\{-}$', '['.a:newmeta.']', '')
+    end
+  end
+  if a:newmeta == ''
+    return substitute(a:oldentry, '\t#\[[^[:tab:]]\{-}\]$', '', '')
+  else
+    return substitute(a:oldentry, '\t#\[[^[:tab:]]\{-}\]$\|$', '\t#['.a:newmeta.']', '')
+  end
+endfunction
+"}}}
+function! s:_get_meta_of(entrystr) "{{{
+  return matchstr(a:entrystr, '\t#\[\zs[^[:tab:]]\{-}\ze\]$')
+endfunction
+"}}}
+function! s:_calc_undisplayedlen_of(orders) "{{{
+  return len(filter(a:orders, '!s:_should_ignore_of_order(v:val)'))
+endfunction
+"}}}
+function! s:_get_wnr_in_crrtabpage(path) "{{{
+  let bnr = bufnr(a:path)
+  return index(tabpagebuflist(), bnr)+1
+endfunction
+"}}}
+
+"------------------
 function! s:_get_entries_and_orders(decknames) "{{{
   let [entries, orders, path2deckname_dic] = [{}, [], {}]
   let i = len(a:decknames)
@@ -64,53 +112,6 @@ function! s:_get_entries_and_orders(decknames) "{{{
   return [entries, orders, path2deckname_dic]
 endfunction
 "}}}
-function! s:_create_orderprop(entrystr) "{{{
-  let meta = s:_get_meta_of(a:entrystr)
-  let should_ignore = a:entrystr =~ '^\s*\%(#\|$\)' ? -1 : meta=~'#'
-  return [should_ignore, len(s:_get_starc(meta))]
-endfunction
-"}}}
-function! s:_get_starc(meta) "{{{
-  return substitute(a:meta, '[^*]', '', 'g')
-endfunction
-"}}}
-function! s:_get_meta_of(entrystr) "{{{
-  return matchstr(a:entrystr, '\t#\[\zs[^[:tab:]]\{-}\ze\]$')
-endfunction
-"}}}
-function! s:_get_newentry_of(oldentry, newmeta) "{{{
-  if a:oldentry=~'\t#\%(\[[^[:tab:]]\{-}\]\)\?[^[[:tab:]][^[:tab:]]*$'
-    if a:newmeta == ''
-      return substitute(a:oldentry, '\t#\zs\[[^[:tab:]]\{-}\]\ze[^[:tab:]]\{-}$', '', '')
-    else
-      return substitute(a:oldentry, '\t#\zs\%(\[[^[:tab:]]\{-}\]\)\?\ze[^[:tab:]]\{-}$', '['.a:newmeta.']', '')
-    end
-  end
-  if a:newmeta == ''
-    return substitute(a:oldentry, '\t#\[[^[:tab:]]\{-}\]$', '', '')
-  else
-    return substitute(a:oldentry, '\t#\[[^[:tab:]]\{-}\]$\|$', '\t#['.a:newmeta.']', '')
-  end
-endfunction
-"}}}
-function! s:_get_wnr_in_crrtabpage(path) "{{{
-  let bnr = bufnr(a:path)
-  return index(tabpagebuflist(), bnr)+1
-endfunction
-"}}}
-function! s:_should_ignore_of_order(order) "{{{
-  return a:order[2][0]
-endfunction
-"}}}
-function! s:_set_should_ignore_of_order(order, val) "{{{
-  let a:order[2][0] = a:val
-endfunction
-"}}}
-function! s:_calc_undisplayedlen_of(orders) "{{{
-  return len(filter(a:orders, '!s:_should_ignore_of_order(v:val)'))
-endfunction
-"}}}
-
 function! s:_modify_orders_for_continue(difftracks, orders, newlines, path, oldlen, oldi) "{{{
   let [offsets, modifier] = flashcards#_get_renewentries_offsets_and_modifier(a:difftracks, a:orders, a:path)
   call modifier.set_essential(a:newlines, a:oldlen)
@@ -142,15 +143,6 @@ function! flashcards#_get_renewentries_offsets_and_modifier(difftracks, orders, 
     let offset += v
   endfor
   return [s:newOffsets(offsets), modifier]
-endfunction
-"}}}
-"------------------
-function! s:_filter_src(srcentry, srcidx, srcidxconts) "{{{
-  if a:srcentry =~ '^\s*\%(#\|$\)'
-    return 0
-  end
-  call add(a:srcidxconts, a:srcidx)
-  return 1
 endfunction
 "}}}
 

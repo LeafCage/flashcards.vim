@@ -31,6 +31,7 @@ aug END
 
 command! -nargs=1 -complete=customlist,flashcards#comp_decks  FlashcardsEdit    call s:flashcards_edit(<q-args>)
 command! -nargs=* -complete=customlist,flashcards#comp_decks  FlashcardsBegin    call s:parse_flashcardsbegin([<f-args>])
+command! -nargs=0  FlashcardsContinue    call flashcards#continue()
 
 function! s:parse_flashcardsbegin(decknames) "{{{
   let i = len(a:decknames)
