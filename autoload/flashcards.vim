@@ -532,7 +532,7 @@ function! s:Modifier.resolve_adds() "{{{
     return
   end
   let newis = self.adds[self.oldi]
-  call extend(self.orders, map(newis, '[self.path, v:val, s:_create_orderprop(self.newlines[v:val])]'), self.ordersi)
+  call extend(self.orders, map(copy(newis), '[self.path, v:val, s:_create_orderprop(self.newlines[v:val])]'), self.ordersi)
   let adjust = len(newis)
   let self.orderslen += adjust
   let self.ordersi += adjust
@@ -558,7 +558,7 @@ function! s:Modifier.lastadds() "{{{
     return
   end
   let newis = self.adds[self.oldlen]
-  call extend(self.orders, map(newis, '[self.path, v:val, s:_create_orderprop(self.newlines[v:val])]'), self.ordersi)
+  call extend(self.orders, map(copy(newis), '[self.path, v:val, s:_create_orderprop(self.newlines[v:val])]'), self.ordersi)
   let adjust = len(newis)
   let self.orderslen += adjust
   let self.ordersi += adjust
