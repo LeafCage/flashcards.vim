@@ -1,0 +1,308 @@
+*flashcards.txt*	あなたの暗記作業を手助けします。
+
+Author  : LeafCage <leafcage+vim @ gmail.com>
+License : MIT license  {{{
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}}}
+
+==============================================================================
+目次						*flashcards-contents*
+
+概要				|flashcards-introduction|
+使い方				|flashcards-usage|
+deckファイルのフォーマット	|flashcards-deck-format|
+インターフェイス		|flashcards-interface|
+  変数				  |flashcards-variables|
+  コマンド			  |flashcards-commands|
+  unite-source			  |flashcards-unite|
+TODO				|flashcards-todo|
+
+
+==============================================================================
+概要						*flashcards-introduction*
+
+*flashcards* は Vim で利用できるフラッシュカードです。
+タブ区切りフォーマットのファイル (deck) を作れば、それを読み込ませて、
+j または <CR> でタブを区切りに順繰りに表示させることが出来ます。
+
+最新版:
+https://github.com/LeafCage/flashcards.vim
+
+
+==============================================================================
+使い方						*flashcards-usage*
+
+まず deck ファイルを作ります。 >
+	:FlashcardsEdit example
+で |g:flashcards#decks_dir|/example というパスのバッファが編集されます。
+
+ファイルタイプ "flashcards" が適用され、以下のオプションが適用されます。 >
+	setlocal list noexpandtab tabstop=8 shiftwidth=8 softtabstop=8
+<
+このバッファを次のように編集して書き込んでファイルにします。
+タブ文字を "{tab}" と表しています。 >
+	1 {tab} H {tab} 水素
+	2 {tab} He {tab} ヘリウム
+	3 {tab} Li {tab} リチウム
+これで deck "example" の完成です。
+
+読み込みは|:FlashcardsBegin|で行います。 >
+	:FlashcardsBegin example
+もし複数の引数を渡すと複数 deck を読み込ませることができます。
+
+flashcards が開始されるとコマンドラインに次のような文字列が echo されます。 >
+	example > example (1/3)
+	> 1
+<
+j または <CR> でエントリを繰ることが出来ます。 >
+	example > example (1/3)
+	> 1
+	- H
+<
+再び j または <CR> を押してエントリ最後まで到達すると
+continue > メッセージが表示されます。 >
+	example > example (1/3)
+	> 1
+	- H
+	- 水素
+	continue >
+
+j or <CR> で繰ると次の問題が出題されます。 >
+	example > example (2/3)
+	> 2
+<
+k で一つ前の状態に戻れます。 >
+	example > example (1/3)
+	> 1
+	- H
+	- 水素
+	continue >
+
+このエントリは必ず答えられる自信があるので非表示にしたい場合は u を押します。
+エントリを非表示にしたというメッセージと共に次のエントリに進みます。
+そして非表示された分エントリの番号は、ずれます。 >
+	#1 entry is undisplayed.
+	example > example (1/2)
+	> 2
+
+h / l でレートを増減させることが出来ます。分からない問題、間違えた問題、骨のあ
+る問題にはレートを付けましょう。
+後にレート順で並べて出題させたり、低レートの問題を除いて出題させることが出来ま
+す。 >
+	example > example (1/2) *
+	> 2
+
+n で次のエントリに進みます。 >
+	example > example (2/2)
+	> 3
+同様にp で前のエントリに戻ります。 >
+	example > example (1/2)
+	> 2
+
+q or <C-c> or s で flashcards mode を抜け、通常のVimに戻ります。
+また、e で現在表示中のエントリに該当するファイルの行を編集します。
+
+--------------
+サンプルデッキ
+
+flashcards.vim リポジトリに sample_decks/ ディレクトリがあります。
+そこにいくつかサンプルデッキを追加するつもりです。
+自分のデッキディレクトリにコピーして動作を確認することが出来ます。
+
+
+==============================================================================
+deck ファイルのフォーマット			*flashcards-deck-format*
+
+deck ファイルの 1行は 1エントリにあたります。
+タブで表示を区切ります。
+エントリの中で改行を表示させたいときには "\n" をご利用ください。
+
+先頭が "#" で始まる行はコメント行として無視されます。
+また、エントリ末での タブ文字 + "#" から先の文字列も無視されます。なお、
+これはエントリのメタ情報フラグにも利用されています(レートや非表示フラグ)。
+
+
+==============================================================================
+インターフェイス				*flashcards-interface*
+
+------------------------------------------------------------------------------
+変数						*flashcards-variables*
+
+g:flashcards#settings_dir			*g:flashcards#settings_dir*
+	既定値: "~/.config/vim/flashcards"
+	flashcards.vim が作る一時ファイルなどを収めるディレクトリ。
+
+
+g:flashcards#decks_dir				*g:flashcards#decks_dir*
+	既定値: g:flashcards#settings_dir. "/decks"
+	読み込ませる deck ファイルを収めるディレクトリ。
+	このディレクトリにない deck ファイルを読み込ませることも可能だが、
+	deck はこのディレクトリにある方が何かと都合が良くなる。
+	このディレクトリにあるファイルはファイルタイプ "flashcards" が適用され
+	る。
+
+
+g:flashcards#mappings				*g:flashcards#mappings*
+	既定値: 後述
+	flashcards mode 内で実際に使うキーマッピングを定義する辞書。各キーの
+	値がキーマッピングになる。値はリストになっていて、キーマッピングに使い
+	たい文字を複数指定できる。文字は一字でなければならない。
+>
+	g:flashcards#mappings.advance = ["j", "\<CR>"]
+<		現在エントリを順繰りする。
+>
+	g:flashcards#mappings.back = ["k"]
+<		現在エントリを逆繰りする。
+>
+	g:flashcards#mappings.next = ["n"]
+<		次のエントリを表示。
+>
+	g:flashcards#mappings.prev = ["p"]
+<		前のエントリを表示。
+>
+	g:flashcards#mappings.head = ["^"]
+<		先頭エントリにジャンプ。
+>
+	g:flashcards#mappings.last = ["$"]
+<		末尾エントリにジャンプ。
+>
+	g:flashcards#mappings.jump = ["g"]
+<		数値を指定して、その番号のエントリにジャンプ。
+>
+	g:flashcards#mappings.quit = ["q", "\<C-c>"]
+<		flashcards mode を終了し、通常の Vim のモードに戻る。
+>
+	g:flashcards#mappings.suspend = ["s"]
+<		flashcards mode を一時中断する。通常の Vim のモードに戻る。
+		|:FlashcardsContinue|で再開することが出来る。
+>
+	g:flashcards#mappings.edit = ["e"]
+<		現在表示しているエントリを編集する。
+		suspend され、現在表示中の deck ファイル該当エントリ行を開く。
+		|:FlashcardsContinue|で再開することが出来る。
+		このとき、deck ファイルで行われた編集の変更内容は反映される。
+>
+	g:flashcards#mappings.undisplay = ["u"]
+<		現在エントリをundisplay(非表示)にする。
+		これは内部的には該当deckファイルの該当行の末尾に "#[#]" という
+		文字列を付与している。
+>
+	g:flashcards#mappings.incstar = ["l"]
+<		現在エントリのレートを高める。rate は 10 まで高められる。
+		これは内部的には該当deckファイルの該当行の末尾の "#[*]" という
+		文字列の "*" の部分を増やしている。
+>
+	g:flashcards#mappings.decstar = ["h"]
+<		現在エントリのレートを低める。
+		これは内部的には該当deckファイルの該当行の末尾の "#[*]" という
+		文字列の "*" の部分を減らしている。
+>
+	g:flashcards#mappings.toggle_undisplaymode = ["U", "#"]
+<		undisplay にしたエントリも表示させるモードに切り替える。
+>
+	g:flashcards#mappings.shuffle = ["S"]
+<		エントリをシャッフルする。全エントリは順不同になる。
+>
+	g:flashcards#mappings.rate_sort = ["R"]
+<		エントリをレートの高い順に並び替える。
+>
+	g:flashcards#mappings.wringout = ["W"]
+<		数値を指定して、そのレート以上のエントリのみを表示するようにす
+		る。
+
+
+g:flashcards#unite_default_action	*g:flashcards#unite_default_action*
+	既定値: "begin_shuffled"
+	|unite-source-flashcards|の "flashcards/deck" kind のデフォルトのアク
+	ション。
+
+
+------------------------------------------------------------------------------
+コマンド					*flashcards-commands*
+
+:FlashcardsEdit {deckname}			*:FlashcardsEdit*
+	deck を新しく編集する/既存のdeckを編集する。
+	|g:Flashcards#deck_dir|に {deckname} のファイルを作成する。
+
+
+:FlashcardsBegin [{options} ...] {deckname/path} [{deckname/path} ...]
+						*:FlashcardsBegin*
+	deck を指定して flashcards mode を開始する。deck は複数指定することが
+	出来る。これはオプション -shuffle 付きで実行すると複数のデッキを混ぜた
+	出題ができる。
+	また、次のオプションを指定することが出来る。
+
+	-ratesort
+		エントリをレート順に並べる。
+
+	-shuffle
+		エントリをシャッフルする。
+
+	-wringout={number}
+		wringout level を{number}に設定してスタートする。
+		レートが{number}よりも下のエントリは非表示になる。
+
+
+:FlashcardsContinue				*:FlashcardsContinue*
+	suspend 状態になっている deck(s) を再開する。
+	再開できるデッキがない場合は、このコマンドはエラーになる。
+
+
+------------------------------------------------------------------------------
+unite-source					*flashcards-unite*
+						*unite-source-flashcards*
+
+unite.vim (https://github.com/Shougo/unite.vim) が利用可能な場合、
+unite-source-flashcards が使える。 >
+	:Unite flashcards
+で始めることが出来る。
+|g:flashcards#decks_dir|から取得された deck が一覧される。
+これの kind は "flashcards/deck" である。
+
+また、suspend しているデッキがある場合、[:continue:] という候補が先頭に表示さ
+れる。これを選択すると|:FlashcardsContinue|が実行される。
+これの kind は "flashcards/continue" である。
+
+"flashcards/deck" の候補には以下の2つのアクションが定義されている。
+また、"flashcards/deck" の候補は複数選択して実行可能である。そうすると複数の
+デッキが混ぜられて実行される。
+デフォルトアクションは|g:flashcards#unite_default_action|で定義される。
+
+	begin
+		選択された候補(複数可)を引数にして、|:FlashcardsBegin|を
+		オプションなしで実行する。
+
+	begin_shuffled
+		選択された候補(複数可)を引数にして、|:FlashcardsBegin|を
+		-shuffle オプション付きで実行する。
+
+
+==============================================================================
+TODO						*flashcards-todo*
+
+- エントリを逆さまから読み込む
+- m で mark機能
+- input() を使ったクイズ方式
+- ファイルの一部分だけを対象にして読み込ませる
+- 暗算力養成モードみたいなの
+- rabbit-ui.vim みたいなのを使いたい
+
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:noet:fen:

@@ -535,8 +535,8 @@ function! s:Cards.ask_action() "{{{
       call self._act_wringout() | return
     elseif index(g:flashcards#mappings.toggle_undisplaymode, act)!=-1
       call self._act_toggle_displaymode() | return
-    elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
-      call self._act_switch_reversemode() | return
+    "elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
+      "call self._act_switch_reversemode() | return
     elseif index(g:flashcards#mappings.undisplay, act)!=-1 && self._act_toggle_undisplay() | return
     elseif index(g:flashcards#mappings.decstar, act)!=-1 && self._act_decstar() | return
     elseif index(g:flashcards#mappings.incstar, act)!=-1 && self._act_incstar() | return
