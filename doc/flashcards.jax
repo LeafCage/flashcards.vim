@@ -145,7 +145,7 @@ deck ファイルの 1行は 1エントリにあたります。
 変数						*flashcards-variables*
 
 g:flashcards#settings_dir			*g:flashcards#settings_dir*
-	既定値: "~/.config/vim/flashcards"
+	既定値: "~/.config/vim/flashcards.vim"
 	flashcards.vim が作る一時ファイルなどを収めるディレクトリ。
 
 

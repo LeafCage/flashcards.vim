@@ -2,7 +2,7 @@ if exists('g:loaded_flashcards')| finish| endif| let g:loaded_flashcards = 1
 let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
-let g:flashcards#settings_dir = get(g:, 'flashcards#settings_dir', '~/.config/vim/flashcards')
+let g:flashcards#settings_dir = get(g:, 'flashcards#settings_dir', '~/.config/vim/flashcards.vim')
 let g:flashcards#decks_dir = get(g:, 'flashcards#decks_dir', g:flashcards#settings_dir. '/decks')
 let g:flashcards#unite_default_action = get(g:, 'flashcards#unite_default_action', 'begin_shuffled')
 let s:defa_mappings = {}
