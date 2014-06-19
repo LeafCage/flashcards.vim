@@ -206,12 +206,12 @@ g:flashcards#mappings				*g:flashcards#mappings*
 		これは内部的には該当deckファイルの該当行の末尾に "#[#]" という
 		文字列を付与している。
 >
-	g:flashcards#mappings.incstar = ["l"]
+	g:flashcards#mappings.incrate = ["l"]
 <		現在エントリのレートを高める。rate は 10 まで高められる。
 		これは内部的には該当deckファイルの該当行の末尾の "#[*]" という
 		文字列の "*" の部分を増やしている。
 >
-	g:flashcards#mappings.decstar = ["h"]
+	g:flashcards#mappings.decrate = ["h"]
 <		現在エントリのレートを低める。
 		これは内部的には該当deckファイルの該当行の末尾の "#[*]" という
 		文字列の "*" の部分を減らしている。

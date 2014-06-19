@@ -381,7 +381,7 @@ function! s:Cards._act_toggle_undisplay() "{{{
   return 1
 endfunction
 "}}}
-function! s:Cards._act_incstar() "{{{
+function! s:Cards._act_incrate() "{{{
   let newmeta = self.crrmeta . '*'
   let starq = len(s:_get_starc(newmeta))
   if starq>10 || newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
@@ -394,7 +394,7 @@ function! s:Cards._act_incstar() "{{{
   return 1
 endfunction
 "}}}
-function! s:Cards._act_decstar() "{{{
+function! s:Cards._act_decrate() "{{{
   let newmeta = substitute(self.crrmeta, '\*$', '', '')
   let starq = len(s:_get_starc(newmeta))
   if newmeta==#self.crrmeta || self._write_modified_entry(s:_get_newentry_of(self.crrentry, newmeta))
@@ -546,8 +546,8 @@ function! s:Cards.ask_action() "{{{
     elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
       call self._act_toggle_reversemode() | return
     elseif index(g:flashcards#mappings.undisplay, act)!=-1 && self._act_toggle_undisplay() | return
-    elseif index(g:flashcards#mappings.decstar, act)!=-1 && self._act_decstar() | return
-    elseif index(g:flashcards#mappings.incstar, act)!=-1 && self._act_incstar() | return
+    elseif index(g:flashcards#mappings.decrate, act)!=-1 && self._act_decrate() | return
+    elseif index(g:flashcards#mappings.incrate, act)!=-1 && self._act_incrate() | return
     end
   endwhile
 endfunction
