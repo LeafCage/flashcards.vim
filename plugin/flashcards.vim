@@ -20,8 +20,10 @@ let s:defa_mappings.quit = ["q", "\<C-c>"]
 let s:defa_mappings.incstar = ["l"]
 let s:defa_mappings.decstar = ["h"]
 let s:defa_mappings.shuffle = ["S"]
+let s:defa_mappings.rate_sort = ["R"]
+let s:defa_mappings.wringout = ["W"]
 let s:defa_mappings.toggle_undisplaymode = ["U", "#"]
-let s:defa_mappings.toggle_reversemode = ["R"]
+let s:defa_mappings.toggle_reversemode = ["r"]
 let g:flashcards#mappings = extend(s:defa_mappings, get(g:, 'flashcards#mappings', {}))
 
 aug flashcards
@@ -34,17 +36,19 @@ command! -nargs=* -complete=customlist,flashcards#comp_decks  FlashcardsBegin   
 command! -nargs=0  FlashcardsContinue    call flashcards#continue()
 
 function! s:parse_flashcardsbegin(decknames) "{{{
+  let opts = {'-ratesort': 0, '-shuffle': 0, '-wringout': 0}
   let i = len(a:decknames)
   if i==0
     call flashcards#continue()
     return
   end
-  let opts = {'-shuffle': 0, '-star': 0}
   while i
     let i -= 1
     if a:decknames[i] =~ '^-'
       let opt = remove(a:decknames, i)
-      if has_key(opts, opt)
+      if opt=~'^-wringout'
+        let opts['-wringout'] = str2nr(matchstr(opt, '-wringout=\zs\d\+'))
+      elseif has_key(opts, opt)
         let opts[opt] = 1
       else
         echoerr 'invalid option:' opt

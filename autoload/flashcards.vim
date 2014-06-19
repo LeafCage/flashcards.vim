@@ -92,8 +92,8 @@ function! s:_get_meta_of(entrystr) "{{{
   return matchstr(a:entrystr, '\t#\[\zs[^[:tab:]]\{-}\ze\]$')
 endfunction
 "}}}
-function! s:_calc_undisplayedlen_of(orders) "{{{
-  return len(filter(a:orders, '!s:_should_ignore_of_order(v:val)'))
+function! s:_calc_undisplayedlen_of(orders, wringout) "{{{
+  return len(filter(a:orders, '!s:_should_ignore_of_order(v:val) && s:_starq_of_order(v:val)>=a:wringout'))
 endfunction
 "}}}
 function! s:_get_wnr_in_crrtabpage(path) "{{{
@@ -164,32 +164,29 @@ let s:Cards = {'base_hi': 'NONE'}
 let s:Cards.META_UNDISPLAY = '#'
 function! s:newCards(decknames, options) "{{{
   let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'entries': {}, 'orders': []}
+  call extend(self, s:Cards, 'keep')
   let [self.entries, self.orders, self.path2deckname_dic] = s:_get_entries_and_orders(a:decknames)
   let self.name = join(a:decknames, ', ')
   let self.totallen = len(self.orders)
-  let tmp = filter(copy(self.orders), 's:_should_ignore_of_order(v:val)!=-1')
-  let self.displayedlen = len(tmp)
-  let self.undisplayedlen = s:_calc_undisplayedlen_of(tmp)
   let self.is_displaymode = 0
-  call extend(self, s:Cards, 'keep')
+  let self.wringoutlv = a:options['-wringout'] ? a:options['-wringout'] : 0
   if a:options['-shuffle']
     call s:_shuffle(self.orders)
   end
-  if a:options['-star']
+  if a:options['-ratesort']
     call sort(self.orders, 's:_descsort_by_star')
   end
+  call self._update_displaylens()
   return self
 endfunction
 "}}}
-function! s:newCards_continue(decknames, entries, orders, path2deckname_dic, i, is_displaymode) "{{{
-  let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '),
+function! s:newCards_continue(decknames, entries, orders, path2deckname_dic, i, is_displaymode, wringout) "{{{
+  let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'wringout': a:wringout,
     \ 'entries': a:entries, 'orders': a:orders, 'path2deckname_dic': a:path2deckname_dic}
   let self.totallen = len(self.orders)
-  let tmp = filter(copy(self.orders), 's:_should_ignore_of_order(v:val)!=-1')
-  let self.displayedlen = len(tmp)
-  let self.undisplayedlen = s:_calc_undisplayedlen_of(tmp)
   let self.is_displaymode = a:is_displaymode
   call extend(self, s:Cards, 'keep')
+  call self._update_displaylens()
   call self.nexti(0)
   return self
 endfunction
@@ -200,11 +197,11 @@ function! s:Cards._get_crrcount() "{{{
 endfunction
 "}}}
 function! s:Cards._get_normal_crrcount() "{{{
-  return len(filter(self.orders[:self.i], '!s:_should_ignore_of_order(v:val)'))
+  return len(filter(self.orders[:self.i], '!s:_should_ignore_of_order(v:val) && s:_starq_of_order(v:val)>=self.wringoutlv'))
 endfunction
 "}}}
 function! s:Cards._get_displayed_crrcount() "{{{
-  return len(filter(self.orders[:self.i], 's:_should_ignore_of_order(v:val)!=-1'))
+  return len(filter(self.orders[:self.i], 's:_should_ignore_of_order(v:val)!=-1 && s:_starq_of_order(v:val)>=self.wringoutlv'))
 endfunction
 "}}}
 function! s:Cards._get_jlen() "{{{
@@ -215,7 +212,17 @@ function! s:Cards._get_should_ignore_cx() "{{{
   return self.is_displaymode ? 's:_should_ignore_of_order(self.orders[self.i])==-1' : 's:_should_ignore_of_order(self.orders[self.i])'
 endfunction
 "}}}
+function! s:Cards._shouldnot_wringout() "{{{
+  return s:_starq_of_order(self.orders[self.i]) >= self.wringoutlv
+endfunction
+"}}}
 
+function! s:Cards._update_displaylens() "{{{
+  let tmp = filter(copy(self.orders), 's:_should_ignore_of_order(v:val)!=-1  && s:_starq_of_order(v:val)>=self.wringoutlv')
+  let self.displayedlen = len(tmp)
+  let self.undisplayedlen = s:_calc_undisplayedlen_of(tmp, self.wringoutlv)
+endfunction
+"}}}
 function! s:Cards._update_crrprops() "{{{
   let [self.crrentrypath, self.crrentryi, orderprop] = self.orders[self.i]
   let self.crrshould_ignore = orderprop[0]
@@ -329,7 +336,7 @@ function! s:Cards._act_suspend(filename) "{{{
   if !isdirectory(suspenddir)
     call mkdir(suspenddir, 'p')
   end
-  let params = {'i': self.i, 'decknames': self.decknames, 'path2deckname_dic': self.path2deckname_dic, 'is_displaymode': self.is_displaymode, 'orders': self.orders, 'entries': self.entries}
+  let params = {'i': self.i, 'decknames': self.decknames, 'path2deckname_dic': self.path2deckname_dic, 'is_displaymode': self.is_displaymode, 'orders': self.orders, 'entries': self.entries, 'wringout': self.wringoutlv}
   call writefile([string(params)], suspenddir. '/'. a:filename)
 endfunction
 "}}}
@@ -357,7 +364,7 @@ function! s:Cards._act_toggle_undisplay() "{{{
   let save_crrcount = self._get_crrcount()
   let self.crrmeta = newmeta
   call s:_set_should_ignore_of_order(self.orders[self.i], !is_undisplayed)
-  let self.undisplayedlen = s:_calc_undisplayedlen_of(deepcopy(self.orders))
+  let self.undisplayedlen = s:_calc_undisplayedlen_of(deepcopy(self.orders), self.wringoutlv)
   if !self.is_displaymode
     let [self.j, save_i] = [0, self.i]
     call self.nexti(1)
@@ -399,7 +406,7 @@ endfunction
 "}}}
 function! s:Cards._act_shuffle() "{{{
   echoh Question
-  if input('are you ready to shuffle [n/y] > ')!='y'
+  if input('are you ready to shuffle? [n/y] > ')!='y'
     redraw!
     call self._rebuild()
     return
@@ -407,6 +414,39 @@ function! s:Cards._act_shuffle() "{{{
   call s:_shuffle(self.orders)
   redraw!
   let self.j = 0
+  call self._rebuild()
+endfunction
+"}}}
+function! s:Cards._act_rate_sort() "{{{
+  echoh Question
+  if input('are you ready to sort? [n/y] > ')!='y'
+    redraw!
+    call self._rebuild()
+    return
+  end
+  let order = self.orders[self.i]
+  call sort(self.orders, 's:_descsort_by_star')
+  let self.i = match(self.orders, string(order))
+  redraw!
+  call self._rebuild()
+endfunction
+"}}}
+function! s:Cards._act_wringout() "{{{
+  let save_lv = self.wringoutlv
+  echoh Question
+  let lv = substitute(input('wringout level > '), '\D', '', 'g')
+  if lv==''
+    redraw! | call self._rebuild() | return
+  end
+  let self.wringoutlv = str2nr(lv)
+  call self._update_displaylens()
+  redraw!
+  if self.undisplayedlen==0
+    echoh WarningMsg | echo 'make a wringout level into a little lower value.'
+    let self.wringoutlv = save_lv | call self._update_displaylens() | call self._rebuild()
+    return
+  end
+  call self.nexti(0)
   call self._rebuild()
 endfunction
 "}}}
@@ -426,7 +466,7 @@ function! s:Cards.nexti(delta, ...) "{{{
   let delta = a:delta ? a:delta : 1
   let should_ignore_cx = self._get_should_ignore_cx()
   while self.i >= 0 && self.i < self.totallen
-    if !eval(should_ignore_cx)
+    if !eval(should_ignore_cx) && self._shouldnot_wringout()
       call self._update_crrprops()
       return self.i
     end
@@ -446,9 +486,9 @@ function! s:Cards.show_status() "{{{
     echoh Title | echon printf("%s > %s (%d/%d) ", self.name, crrdeckname, self._get_normal_crrcount(), self.undisplayedlen)
   end
   echoh Question | echon s:_get_starc(self.crrmeta)
-  let self.base_hi = self.crrmeta=~self.META_UNDISPLAY ? 'Comment' : 'NONE'
+  let self.base_hi = self.crrshould_ignore ? 'Comment' : 'NONE'
   exe 'echoh' self.base_hi
-  echo (self.crrmeta=~self.META_UNDISPLAY ? '# ' : '> '). s:_echoparse(matchstr(self.crrentry, '^.\{-}\ze\%(\t\|$\)'))
+  echo (self.crrshould_ignore ? '# ' : '> '). s:_echoparse(matchstr(self.crrentry, '^.\{-}\ze\%(\t\|$\)'))
   let self.jlen = self._get_jlen()
 endfunction
 "}}}
@@ -489,6 +529,10 @@ function! s:Cards.ask_action() "{{{
       throw 'flashcards: finish'
     elseif index(g:flashcards#mappings.shuffle, act)!=-1
       call self._act_shuffle() | return
+    elseif index(g:flashcards#mappings.rate_sort, act)!=-1
+      call self._act_rate_sort() | return
+    elseif index(g:flashcards#mappings.wringout, act)!=-1
+      call self._act_wringout() | return
     elseif index(g:flashcards#mappings.toggle_undisplaymode, act)!=-1
       call self._act_toggle_displaymode() | return
     elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
@@ -705,11 +749,11 @@ function! flashcards#edit_deck(deckname) "{{{
 endfunction
 "}}}
 function! flashcards#comp_decks(arglead, cmdline, cursorpos) "{{{
+  let opts = ['-ratesort', '-shuffle', '-wringout=']
   let beens = split(a:cmdline)[1:]
-  let tmp = a:cmdline[a:cursorpos-1]
-  let optlead = tmp=='-' ? tmp : a:arglead
+  let optlead = (a:cmdline[a:cursorpos-1]=='-' && a:cmdline[a:cursorpos-2]==' ') ? '-' : a:arglead
   if optlead=~'^-'
-    return filter(['-shuffle', '-star'], 'v:val =~ "^".optlead && index(beens, v:val)==-1')
+    return filter(opts, 'v:val =~ "^".optlead && match(beens, v:val)==-1')
   end
   let decknames = flashcards#get_decknames()
   return filter(decknames, 'v:val =~ "^".a:arglead && index(beens, v:val)==-1')
@@ -791,7 +835,7 @@ function! flashcards#continue(...) "{{{
       let [orders, suspended.i] = s:_modify_orders_for_continue(diff.tracks, orders, newentries[path], path, len(entries[path]), suspended.i)
     end
   endfor
-  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.path2deckname_dic, suspended.i, suspended.is_displaymode)
+  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.path2deckname_dic, suspended.i, suspended.is_displaymode, suspended.wringout)
   call flashcards#start(cards)
 endfunction
 "}}}
