@@ -16,6 +16,7 @@ let s:defa_mappings.jump = ["g"]
 let s:defa_mappings.quit = ["q", "\<C-c>"]
 let s:defa_mappings.suspend = ["s"]
 let s:defa_mappings.edit = ["e"]
+let s:defa_mappings.toggle_reversemode = ["r"]
 let s:defa_mappings.undisplay = ["u"]
 let s:defa_mappings.incstar = ["l"]
 let s:defa_mappings.decstar = ["h"]
@@ -23,7 +24,6 @@ let s:defa_mappings.toggle_undisplaymode = ["U", "#"]
 let s:defa_mappings.shuffle = ["S"]
 let s:defa_mappings.rate_sort = ["R"]
 let s:defa_mappings.wringout = ["W"]
-"let s:defa_mappings.toggle_reversemode = ["r"]
 let g:flashcards#mappings = extend(s:defa_mappings, get(g:, 'flashcards#mappings', {}))
 
 aug flashcards
@@ -36,7 +36,7 @@ command! -nargs=* -complete=customlist,flashcards#comp_decks  FlashcardsBegin   
 command! -nargs=0  FlashcardsContinue    call flashcards#continue()
 
 function! s:parse_flashcardsbegin(decknames) "{{{
-  let opts = {'-ratesort': 0, '-shuffle': 0, '-wringout': 0}
+  let opts = {'-ratesort': 0, '-reverse': 0, '-shuffle': 0, '-wringout': 0}
   let i = len(a:decknames)
   if i==0
     call flashcards#continue()

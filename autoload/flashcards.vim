@@ -163,13 +163,13 @@ endfunction
 let s:Cards = {'base_hi': 'NONE'}
 let s:Cards.META_UNDISPLAY = '#'
 function! s:newCards(decknames, options) "{{{
-  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'entries': {}, 'orders': []}
+  let self = {'i': 0, 'j': 0, 'decknames': a:decknames, 'entries': {}, 'orders': [], 'is_displaymode': 0}
   call extend(self, s:Cards, 'keep')
   let [self.entries, self.orders, self.path2deckname_dic] = s:_get_entries_and_orders(a:decknames)
   let self.name = join(a:decknames, ', ')
   let self.totallen = len(self.orders)
-  let self.is_displaymode = 0
   let self.wringoutlv = a:options['-wringout'] ? a:options['-wringout'] : 0
+  let self.is_reversemode = a:options['-reverse']
   if a:options['-shuffle']
     call s:_shuffle(self.orders)
   end
@@ -185,6 +185,7 @@ function! s:newCards_continue(decknames, entries, orders, path2deckname_dic, i, 
     \ 'entries': a:entries, 'orders': a:orders, 'path2deckname_dic': a:path2deckname_dic}
   let self.totallen = len(self.orders)
   let self.is_displaymode = a:is_displaymode
+  "let self.is_reversemode = a:is_reversemode
   call extend(self, s:Cards, 'keep')
   call self._update_displaylens()
   call self.nexti(0)
@@ -456,7 +457,10 @@ function! s:Cards._act_toggle_displaymode() "{{{
   call self._rebuild()
 endfunction
 "}}}
-function! s:Cards._act_switch_reversemode() "{{{
+function! s:Cards._act_toggle_reversemode() "{{{
+  let self.is_reversemode = !self.is_reversemode
+  redraw!
+  call self._rebuild()
 endfunction
 "}}}
 
@@ -488,13 +492,15 @@ function! s:Cards.show_status() "{{{
   echoh Question | echon s:_get_starc(self.crrmeta)
   let self.base_hi = self.crrshould_ignore ? 'Comment' : 'NONE'
   exe 'echoh' self.base_hi
-  echo (self.crrshould_ignore ? '# ' : '> '). s:_echoparse(matchstr(self.crrentry, '^.\{-}\ze\%(\t\|$\)'))
+  let exp = self.is_reversemode ? '\%(\t\|^\)\zs[^[:tab:]]\+\ze\%(\t#[^[:tab:]]\+\)\?$' : '^.\{-}\ze\%(\t\|$\)'
+  echo (self.crrshould_ignore ? '# ' : '> '). s:_echoparse(matchstr(self.crrentry, exp))
   let self.jlen = self._get_jlen()
 endfunction
 "}}}
 function! s:Cards.flip(j) "{{{
   exe 'echoh' self.base_hi
-  echo '- '. s:_echoparse(matchstr(self.crrentry, '^\%(.\{-}\t\)\{'.(a:j).'}\zs.\{-}\ze\%(\t\|$\)'))
+  let j = self.is_reversemode ? self.jlen-1 - a:j : a:j
+  echo '- '. s:_echoparse(matchstr(self.crrentry, '^\%(.\{-}\t\)\{'.(j).'}\zs.\{-}\ze\%(\t\|$\)'))
 endfunction
 "}}}
 function! s:Cards.ask_action() "{{{
@@ -535,8 +541,8 @@ function! s:Cards.ask_action() "{{{
       call self._act_wringout() | return
     elseif index(g:flashcards#mappings.toggle_undisplaymode, act)!=-1
       call self._act_toggle_displaymode() | return
-    "elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
-      "call self._act_switch_reversemode() | return
+    elseif index(g:flashcards#mappings.toggle_reversemode, act)!=-1
+      call self._act_toggle_reversemode() | return
     elseif index(g:flashcards#mappings.undisplay, act)!=-1 && self._act_toggle_undisplay() | return
     elseif index(g:flashcards#mappings.decstar, act)!=-1 && self._act_decstar() | return
     elseif index(g:flashcards#mappings.incstar, act)!=-1 && self._act_incstar() | return
@@ -749,7 +755,7 @@ function! flashcards#edit_deck(deckname) "{{{
 endfunction
 "}}}
 function! flashcards#comp_decks(arglead, cmdline, cursorpos) "{{{
-  let opts = ['-ratesort', '-shuffle', '-wringout=']
+  let opts = ['-ratesort', '-reverse', '-shuffle', '-wringout=']
   let beens = split(a:cmdline)[1:]
   let optlead = (a:cmdline[a:cursorpos-1]=='-' && a:cmdline[a:cursorpos-2]==' ') ? '-' : a:arglead
   if optlead=~'^-'

@@ -198,6 +198,9 @@ g:flashcards#mappings				*g:flashcards#mappings*
 		|:FlashcardsContinue|で再開することが出来る。
 		このとき、deck ファイルで行われた編集の変更内容は反映される。
 >
+	g:flashcards#mappings.toggle_reversemode = ["r"]
+<		問題→解答 順でなく 解答→問題 の順に表示するモードにトグル。
+>
 	g:flashcards#mappings.undisplay = ["u"]
 <		現在エントリをundisplay(非表示)にする。
 		これは内部的には該当deckファイルの該当行の末尾に "#[#]" という
@@ -251,6 +254,9 @@ g:flashcards#unite_default_action	*g:flashcards#unite_default_action*
 	-ratesort
 		エントリをレート順に並べる。
 
+	-reverse
+		エントリを 問題→解答 でなく 解答→問題 の順で表示する。
+
 	-shuffle
 		エントリをシャッフルする。
 
@@ -296,7 +302,6 @@ unite-source-flashcards が使える。 >
 ==============================================================================
 TODO						*flashcards-todo*
 
-- エントリを逆さまから読み込む
 - m で mark機能
 - input() を使ったクイズ方式
 - ファイルの一部分だけを対象にして読み込ませる
