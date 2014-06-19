@@ -180,12 +180,12 @@ function! s:newCards(decknames, options) "{{{
   return self
 endfunction
 "}}}
-function! s:newCards_continue(decknames, entries, orders, path2deckname_dic, i, is_displaymode, wringout) "{{{
-  let self = {'i': a:i, 'j': 0, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'wringout': a:wringout,
+function! s:newCards_continue(decknames, entries, orders, path2deckname_dic, i, j, is_displaymode, is_reversemode, wringoutlv) "{{{
+  let self = {'i': a:i, 'j': a:j, 'decknames': a:decknames, 'name': join(a:decknames, ', '), 'wringoutlv': a:wringoutlv,
     \ 'entries': a:entries, 'orders': a:orders, 'path2deckname_dic': a:path2deckname_dic}
   let self.totallen = len(self.orders)
   let self.is_displaymode = a:is_displaymode
-  "let self.is_reversemode = a:is_reversemode
+  let self.is_reversemode = a:is_reversemode
   call extend(self, s:Cards, 'keep')
   call self._update_displaylens()
   call self.nexti(0)
@@ -337,7 +337,9 @@ function! s:Cards._act_suspend(filename) "{{{
   if !isdirectory(suspenddir)
     call mkdir(suspenddir, 'p')
   end
-  let params = {'i': self.i, 'decknames': self.decknames, 'path2deckname_dic': self.path2deckname_dic, 'is_displaymode': self.is_displaymode, 'orders': self.orders, 'entries': self.entries, 'wringout': self.wringoutlv}
+  let params = {'i': self.i, 'j': self.j, 'decknames': self.decknames, 'path2deckname_dic': self.path2deckname_dic,
+    \ 'is_displaymode': self.is_displaymode, 'is_reversemode': self.is_reversemode, 'wringoutlv': self.wringoutlv,
+    \ 'orders': self.orders, 'entries': self.entries}
   call writefile([string(params)], suspenddir. '/'. a:filename)
 endfunction
 "}}}
@@ -363,9 +365,9 @@ function! s:Cards._act_toggle_undisplay() "{{{
     return
   end
   let save_crrcount = self._get_crrcount()
-  let self.crrmeta = newmeta
   call s:_set_should_ignore_of_order(self.orders[self.i], !is_undisplayed)
   let self.undisplayedlen = s:_calc_undisplayedlen_of(deepcopy(self.orders), self.wringoutlv)
+  call self._update_crrprops()
   if !self.is_displaymode
     let [self.j, save_i] = [0, self.i]
     call self.nexti(1)
@@ -789,7 +791,7 @@ function! flashcards#start(source, ...) "{{{
   try
     while cards.i != -99
       call cards.show_status()
-      if cards.ask_action()
+      if !cards.j && cards.ask_action()
         let cards.j = 1
       end
       while cards.j < cards.jlen
@@ -841,7 +843,8 @@ function! flashcards#continue(...) "{{{
       let [orders, suspended.i] = s:_modify_orders_for_continue(diff.tracks, orders, newentries[path], path, len(entries[path]), suspended.i)
     end
   endfor
-  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.path2deckname_dic, suspended.i, suspended.is_displaymode, suspended.wringout)
+  let cards = s:newCards_continue(suspended.decknames, newentries, orders, suspended.path2deckname_dic, suspended.i, suspended.j, suspended.is_displaymode, suspended.is_reversemode, suspended.wringoutlv)
+  unlet! diff suspended orders entries newentries
   call flashcards#start(cards)
 endfunction
 "}}}
